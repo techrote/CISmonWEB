@@ -1,5 +1,130 @@
 # CISmonWEB
 
-Local web application port of [techrote/CISmon](https://github.com/techrote/CISmon).
+CISmonWEB is a local web application port of techrote/CISmon, the ESP32/CYD desk-side CI monitor.
 
-Implementation is developed through pull requests from this bootstrap commit.
+The port is based on CISmon commit 5c67fd1d3669cc704c384380d059d59566879e2f. It keeps the original project's purpose:
+
+> What is running? What is taking too long? What just broke? Is there anything I need to care about?
+
+It is not intended to reproduce GitHub's Actions UI. It is an attention-oriented working-memory display for long-running automation.
+
+## What the web port preserves
+
+- authenticated repository discovery with owner/include/exclude filtering;
+- adaptive repository polling;
+- GitHub ETag / If-None-Match support;
+- active run → job → step detail polling ahead of lower-priority work;
+- persistent timing history without storing CI logs;
+- run/job/step timing baselines;
+- median, quartile, MAD and EWMA statistics;
+- NORMAL, INTERESTING, SUSPICIOUS, and ACTION REQUIRED states;
+- approximate remaining-time estimates;
+- possible-stall detection;
+- persistent unacknowledged failures;
+- manual run watches;
+- completed-run history backfill.
+
+The anomaly thresholds intentionally match the current CISmon portable core:
+
+    >= 1.30x median or robust-z >= 2.5  -> INTERESTING
+    >= 1.75x median or robust-z >= 4.0  -> SUSPICIOUS
+    >= 3.00x median or robust-z >= 6.0  -> SUSPICIOUS + possible stall while active
+    failed/timed-out/action-required     -> ACTION REQUIRED
+
+## Web-specific architecture
+
+CISmonWEB moves GitHub access out of the display client:
+
+    Browser dashboard
+           |
+           | local /api/*
+           v
+    Node local server
+           |
+           +--> RunTracker / RuntimeAnalyzer / dashboard ranking
+           |
+           +--> local config + JSONL timing journal
+           |
+           +--> serialized adaptive polling
+                        |
+                        v
+                 GitHub Actions API
+
+The browser never receives the configured GitHub token. By default the Node server binds only to 127.0.0.1.
+
+See docs/ARCHITECTURE.md and docs/SECURITY.md.
+
+## Requirements
+
+- Node.js 20 or newer.
+- A fine-grained GitHub token with read-only access to the repositories you want to monitor.
+
+There are no runtime npm dependencies.
+
+## Run locally
+
+    git clone https://github.com/techrote/CISmonWEB.git
+    cd CISmonWEB
+    npm start
+
+Open http://127.0.0.1:8787 and select Configure. Enter a fine-grained read-only token, then optionally set an owner and include/exclude globs.
+
+Alternatively, keep the token out of the configuration file:
+
+    GITHUB_TOKEN=github_pat_... npm start
+
+Optional environment variables:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| GITHUB_TOKEN | unset | Overrides the stored GitHub token |
+| CISMON_OWNER | stored value | Overrides owner filtering |
+| CISMON_DATA_DIR | ~/.cismonweb | Local config/history directory |
+| CISMON_HOST | 127.0.0.1 | HTTP bind address |
+| CISMON_PORT | 8787 | HTTP port |
+
+## Local data
+
+CISmonWEB writes config.json and history.jsonl under ~/.cismonweb by default.
+
+config.json is written with user-only file permissions where the host filesystem supports them. history.jsonl contains timing metadata, not Actions log content.
+
+A timing baseline is keyed by repository, workflow ID, event, and optional job/step names. Only successful observations contribute to expected-duration baselines, matching the firmware project.
+
+## Polling behavior
+
+The default policy mirrors CISmon:
+
+| Repository state | Poll interval |
+| --- | ---: |
+| Active workflow | 15 s |
+| Queued workflow | 20 s |
+| Recently active | 60 s |
+| Idle | 120 s |
+| Cold | 300 s |
+| Errors | exponential backoff, capped at 10 min |
+
+Request priority remains:
+
+    active run job detail
+        > due repository workflow list
+            > completed-run history backfill
+
+The local server spaces GitHub requests rather than issuing a continuous burst.
+
+## Test
+
+    npm test
+    npm run check
+
+The test suite checks statistical parity, attention thresholds, tracker behavior, poll policy, glob semantics, GitHub normalization, and persistent timing-journal reload.
+
+## Current limitations
+
+- GitHub Actions is the only provider.
+- Repository discovery considers the first 100 repositories returned by /user/repos, then applies filters and the configured cap.
+- Workflow polling reads the latest 20 runs per repository.
+- Job detail reads the first 100 jobs of the latest attempt.
+- The timing journal is append-only; bounded in-memory retention is implemented, but on-disk compaction is not yet.
+- Configuration has no authentication because the server is intended to bind to loopback. Do not expose it to an untrusted network without adding an authentication boundary.
+- This is a local monitor, not a webhook receiver; fresh state is bounded by its adaptive poll interval.
