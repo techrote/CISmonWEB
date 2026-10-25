@@ -32,7 +32,7 @@ export function createHungryFrameEngine(iframe, onChange = () => {}) {
 
   function pauseActual() {
     post("pause", { paused: paused || reduced || surface.motion === "off" || document.hidden });
-    onChange(paused || reduced || surface.motion === "off");
+    onChange(paused || reduced || surface.motion === "off", ready);
   }
 
   function updateScene() {
