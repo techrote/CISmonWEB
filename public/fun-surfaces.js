@@ -7,6 +7,7 @@ import {
   summarizeFunRows
 } from "/fun-core.js";
 import { createFunEngine } from "/fun-engine.js";
+import { groupRows } from "/surfaces.js";
 
 const labelFor = {
   signal: ["SIGNAL RETENTION", "CONTINUOUS TRANSMISSION / GITHUB ACTIONS"],
@@ -40,7 +41,7 @@ function stateClass(row) {
     row.attention === "suspicious" ? "suspicious" : "terminal";
 }
 
-function makeRow(row, mode, openRun, formatDuration) {
+function makeRow(row, mode, openRun, formatDuration, surface) {
   const button = el("button", "living-run living-run-" + mode + " living-state-" + stateClass(row));
   button.type = "button";
   button.dataset.runKey = runIdentity(row);
@@ -50,22 +51,50 @@ function makeRow(row, mode, openRun, formatDuration) {
   const repo = el("span", "living-run-repo", row.repository);
   const title = el("strong", "living-run-title", row.workflow + " #" + row.runNumber);
   const lower = el("div", "living-run-detail");
-  const status = el("span", "living-run-status", label(rowStatus(row)));
-  lower.append(status, el("span", "living-run-time", formatDuration(row.elapsedMs)));
-  if (row.branch) lower.append(el("span", "living-run-branch", row.branch));
-  if (row.possiblyStalled) lower.append(el("span", "living-run-flag", "POSSIBLE STALL"));
-  if (row.manualWatch) lower.append(el("span", "living-run-flag", "WATCHED"));
+  const fields = new Set(surface.fields || []);
+
+  if (fields.has("state")) lower.append(el("span", "living-run-status", label(rowStatus(row))));
+  if (fields.has("elapsed")) lower.append(el("span", "living-run-time", formatDuration(row.elapsedMs)));
+  if (fields.has("branch") && row.branch) lower.append(el("span", "living-run-branch", row.branch));
+  if (fields.has("stage") && row.stage) lower.append(el("span", "living-run-field", row.stage));
+  if (fields.has("baseline") && row.baselineMedianMs) {
+    lower.append(el("span", "living-run-field", "MED " + formatDuration(row.baselineMedianMs)));
+  }
+  if (fields.has("ratio") && row.ratio > 0) {
+    lower.append(el("span", "living-run-field", Number(row.ratio).toFixed(2) + "×"));
+  }
+  if (fields.has("remaining") && row.estimatedRemainingMs > 0) {
+    lower.append(el("span", "living-run-field", "~" + formatDuration(row.estimatedRemainingMs) + " REMAINING"));
+  }
+  if (fields.has("confidence") && row.confidence) {
+    lower.append(el("span", "living-run-field", row.confidence + " CONFIDENCE"));
+  }
+  if (surface.showAttentionBadge && row.attention !== "normal") {
+    lower.append(el("span", "living-run-attention", label(row.attention)));
+  }
+  if (surface.showStallFlag && row.possiblyStalled) {
+    lower.append(el("span", "living-run-flag", "POSSIBLE STALL"));
+  }
+  if (surface.showWatchFlags && row.manualWatch) {
+    lower.append(el("span", "living-run-flag", "WATCHED"));
+  }
+
   button.append(repo, title, lower);
   button.addEventListener("click", () => openRun(row.repository, row.runId));
   return button;
 }
 
-function renderLaneList(rows, target, openRun, formatDuration) {
+function renderLaneList(rows, target, openRun, formatDuration, surface) {
   target.replaceChildren();
-  for (const group of groupFunRepositories(rows)) {
+  const groups = surface.groupBy === "repository" || surface.groupBy === "none" ?
+    groupFunRepositories(rows).map(g => ({ title: g.repository, rows: g.rows, counts: g.counts })) :
+    groupRows(rows, surface).map(g => ({
+      title: g.label, rows: g.rows, counts: summarizeFunRows(g.rows)
+    }));
+  for (const group of groups) {
     const section = el("section", "living-repo-lane");
     const heading = el("header", "living-repo-heading");
-    heading.append(el("strong", "", group.repository));
+    heading.append(el("strong", "", group.title));
     const status = [
       group.counts.running + " RUNNING",
       group.counts.queued + " QUEUED",
@@ -74,15 +103,31 @@ function renderLaneList(rows, target, openRun, formatDuration) {
     heading.append(el("span", "", status));
     section.append(heading);
     const list = el("div", "living-repo-items");
-    for (const row of group.rows) list.append(makeRow(row, "lane", openRun, formatDuration));
+    for (const row of group.rows) {
+      list.append(makeRow(row, "lane", openRun, formatDuration, surface));
+    }
     section.append(list);
     target.append(section);
   }
 }
 
-function renderRunList(rows, layout, target, openRun, formatDuration) {
+function renderRunList(rows, layout, target, openRun, formatDuration, surface) {
   target.replaceChildren();
-  for (const row of rows) target.append(makeRow(row, layout, openRun, formatDuration));
+  const groups = groupRows(rows, surface);
+  for (const group of groups) {
+    const wrapper = group.label ? el("section", "living-group") : target;
+    if (group.label) {
+      wrapper.append(el("header", "living-group-heading", group.label + " / " + group.rows.length));
+    }
+    const inside = group.label ? el("div", "living-group-cards") : target;
+    for (const row of group.rows) {
+      inside.append(makeRow(row, layout, openRun, formatDuration, surface));
+    }
+    if (group.label) {
+      wrapper.append(inside);
+      target.append(wrapper);
+    }
+  }
 }
 
 export function createFunView(surface, openRun, formatDuration) {
@@ -183,9 +228,9 @@ export function createFunView(surface, openRun, formatDuration) {
     );
 
     if (mode === "lanes_plus") {
-      renderLaneList(rows, list, openRun, formatDuration);
+      renderLaneList(rows, list, openRun, formatDuration, latestSurface);
     } else {
-      renderRunList(rows, mode, list, openRun, formatDuration);
+      renderRunList(rows, mode, list, openRun, formatDuration, latestSurface);
     }
 
     if (!rows.length) {
