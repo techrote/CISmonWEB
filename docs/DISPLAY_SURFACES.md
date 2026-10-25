@@ -30,21 +30,44 @@ Groups currently relevant work by repository into separate lanes.
 
 Filters to runs that CISmon currently considers possible stalls and emphasizes elapsed/baseline information.
 
+### Signal Retention
+
+A dedicated procedural oscilloscope display. Every trace represents an actual surfaced workflow run; live/queued/completed status controls colour, amplitude and movement. The decorative carrier wave is not an actual CPU/CI signal.
+
+### Afterimage Debt
+
+Physical misregistration, image echoes and independently drawn cards. Only run-state transitions actually observed across successive local browser polls create a named afterimage. Newly loaded historical failures do not invent echoes. The event list is ephemeral and resets with the view.
+
+### Repository Lanes+
+
+Per-repository activity boards with true running/queued/failure counts. The softly animated point field is an aesthetic proximity encoding, explicitly **not** a dependency graph.
+
+### Hungry Margins (037)
+
+Derived from the user-supplied **037 / Hungry Margins** interactive HTML artwork, not from 031 / Shear Crystallization. This implementation translates its olive-black quiet substrate, broken reliquary seals, settling ash, resonant pressure waves, contact-borne surface contamination, and edges that flinch and subsequently regrow around the pointer. Run cards and exact statuses remain accessible HTML above the canvas.
+
+The displayed **COHERENCE** percentage is a labelled illustrative visual index computed from *currently surface-matched* workflow states. It is not GitHub health, a historical failure rate, reliability, or a machine-learned model. No automatic repository actions are triggered by the artwork.
+
 ## Profile properties
 
 Every surface stores the following independently.
 
 ### Layout and density
 
-- layout: rows, cards, table, or lanes;
+- layout: rows, cards, table, lanes, signal, afterimage, lanes_plus, or hungry_margins;
 - density: comfortable, compact, or ultra;
 - theme: dark, black, light, amber terminal, or green terminal;
 - maximum visible items;
 - browser refresh cadence;
 - full-width canvas;
-- kiosk/minimal chrome.
+- kiosk/minimal chrome;
+- animation: off / subtle / normal / intense;
+- pointer reactivity: 0–100;
+- show/hide artwork controls for experimental layouts.
 
 The browser refresh cadence only controls how often the browser asks the local server for already-normalized state. GitHub API polling remains governed by the monitor's adaptive scheduler.
+
+Artistic surfaces use first-party Canvas 2D with no new runtime dependencies. They limit pixel ratio and frame cadence, stop drawing while hidden, and respect `prefers-reduced-motion`. Pause, Reseed and Collect PNG affect only the visual specimen. Collect exports the canvas artwork layer, not the HTML overlay or a run report.
 
 ## Ordering and grouping
 
@@ -125,6 +148,7 @@ For example:
     http://127.0.0.1:8787/?surface=dense
     http://127.0.0.1:8787/?surface=wallboard
     http://127.0.0.1:8787/?surface=stalls
+    http://127.0.0.1:8787/?surface=hungry-margins
 
 The selected surface becomes the active persisted surface.
 
@@ -140,7 +164,9 @@ Supported operations:
 - reset to built-in defaults;
 - edit all profile properties.
 
-At least one surface must remain.
+At least one surface must remain. Up to 32 profiles can be persisted.
+
+On upgrade from the six-surface release, CISmonWEB appends the four new creative defaults once without overwriting existing custom profiles. The migration version is saved with local configuration. Deleting a new surface after migration does not cause it to reappear on every restart.
 
 ## Separation from monitoring configuration
 

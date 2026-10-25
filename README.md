@@ -45,14 +45,22 @@ Built-in profiles:
 | Wallboard | kiosk-style card display for a larger screen |
 | Repository lanes | per-repository grouped workflow lanes |
 | Stalls | possible-stall-focused diagnostic surface |
+| Signal Retention | oscilloscope-like data-driven waveform field |
+| Afterimage Debt | ghosted cards plus transitions actually observed in this browser |
+| Repository Lanes+ | animated per-repository operational boards |
+| Hungry Margins | interactive olive-black living substrate based on the provided artwork |
 
 Each surface can independently configure layout, density, theme, refresh cadence, maximum items, sorting, grouping, minimum attention level, repository/workflow/event globs, run-state visibility, watched-only/stalls-only filters, visible fields, telemetry, error/summary chrome, full-width mode and kiosk/minimal chrome.
 
-Layouts currently available are rows, cards, dense table and lanes. Themes include dark, black, light, amber-terminal and green-terminal.
+Layouts include rows, cards, dense table, lanes, Signal Retention, Afterimage Debt, Repository Lanes+ and Hungry Margins. Themes include dark, black, light, amber-terminal and green-terminal. Experimental surfaces also have independent motion intensity, pointer reactivity and artwork-control visibility.
 
 A surface can be addressed directly with a URL such as:
 
     http://127.0.0.1:8787/?surface=wallboard
+    http://127.0.0.1:8787/?surface=signal-retention
+    http://127.0.0.1:8787/?surface=afterimage-debt
+    http://127.0.0.1:8787/?surface=repository-lanes-plus
+    http://127.0.0.1:8787/?surface=hungry-margins
 
 Use the **Surface** button to edit, create, duplicate, delete or reset profiles. Fullscreen is available from the top toolbar.
 
@@ -160,13 +168,13 @@ The local server spaces GitHub requests rather than issuing a continuous burst.
     npm test
     npm run check
 
-The test suite checks statistical parity, attention thresholds, tracker behavior, poll policy, glob semantics, GitHub normalization, and persistent timing-journal reload.
+The test suite checks statistical parity, attention thresholds, tracker behavior, poll policy, glob semantics, GitHub normalization, persistent timing-journal reload, surface migration, observed-only afterimage events and local animation asset routing.
 
 ## Current limitations
 
 - GitHub Actions is the only provider.
 - Repository discovery considers the first 100 repositories returned by /user/repos, then applies filters and the configured cap.
-- Workflow polling reads the latest 20 runs per repository.
+- Workflow polling currently reads up to 100 recent runs per repository.
 - Job detail reads the first 100 jobs of the latest attempt.
 - The timing journal is append-only; bounded in-memory retention is implemented, but on-disk compaction is not yet.
 - Configuration has no authentication because the server is intended to bind to loopback. Do not expose it to an untrusted network without adding an authentication boundary.

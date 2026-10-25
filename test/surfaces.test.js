@@ -16,9 +16,11 @@ const rows = [
 ];
 
 test("default surfaces include distinct desk, dense, alert and wallboard profiles", () => {
-  assert.deepEqual(DEFAULT_SURFACES.map((surface) => surface.id), ["focus", "dense", "alerts", "wallboard", "repo-lanes", "stalls"]);
+  assert.deepEqual(DEFAULT_SURFACES.map((surface) => surface.id), ["focus", "dense", "alerts", "wallboard", "repo-lanes", "stalls",
+    "signal-retention", "afterimage-debt", "repository-lanes-plus", "hungry-margins"]);
   assert.equal(DEFAULT_SURFACES[1].layout, "table");
   assert.equal(DEFAULT_SURFACES[3].hideChrome, true);
+  assert.equal(DEFAULT_SURFACES.find(s => s.id === "hungry-margins").layout, "hungry_margins");
 });
 
 test("surface normalization clamps unsafe values and de-duplicates ids", () => {

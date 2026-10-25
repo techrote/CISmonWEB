@@ -1,5 +1,6 @@
-const LAYOUTS = new Set(["rows", "cards", "table", "lanes"]);
+const LAYOUTS = new Set(["rows", "cards", "table", "lanes", "signal", "afterimage", "lanes_plus", "hungry_margins"]);
 const DENSITIES = new Set(["comfortable", "compact", "ultra"]);
+const MOTIONS = new Set(["off", "subtle", "normal", "intense"]);
 const THEMES = new Set(["dark", "black", "light", "amber", "green"]);
 const SORTS = new Set(["priority", "elapsed", "repository", "remaining"]);
 const GROUPS = new Set(["none", "repository", "state", "attention"]);
@@ -217,6 +218,90 @@ export const DEFAULT_SURFACES = Object.freeze([
     showStallFlag: true,
     fullWidth: false,
     hideChrome: false
+  },
+  {
+    id: "signal-retention",
+    name: "Signal Retention",
+    layout: "signal",
+    density: "comfortable",
+    theme: "black",
+    refreshMs: 2000,
+    maxItems: 24,
+    sort: "priority",
+    groupBy: "none",
+    minAttention: "normal",
+    repositoryPatterns: [], workflowPatterns: [], eventPatterns: [],
+    showInProgress: true, showQueued: true, showSuccess: true,
+    showFailures: true, showOtherCompleted: true,
+    watchedOnly: false, stallsOnly: false,
+    fields: ["stage", "state", "elapsed", "ratio", "branch"],
+    showTelemetry: true, showSummary: false, showError: true,
+    showAttentionBadge: true, showWatchFlags: true, showStallFlag: true,
+    fullWidth: true, hideChrome: false,
+    motion: "normal", reactivity: 70, showFunControls: true
+  },
+  {
+    id: "afterimage-debt",
+    name: "Afterimage Debt",
+    layout: "afterimage",
+    density: "comfortable",
+    theme: "black",
+    refreshMs: 2000,
+    maxItems: 24,
+    sort: "priority",
+    groupBy: "none",
+    minAttention: "normal",
+    repositoryPatterns: [], workflowPatterns: [], eventPatterns: [],
+    showInProgress: true, showQueued: true, showSuccess: true,
+    showFailures: true, showOtherCompleted: true,
+    watchedOnly: false, stallsOnly: false,
+    fields: ["stage", "state", "elapsed", "branch"],
+    showTelemetry: true, showSummary: false, showError: true,
+    showAttentionBadge: true, showWatchFlags: true, showStallFlag: true,
+    fullWidth: true, hideChrome: false,
+    motion: "normal", reactivity: 55, showFunControls: true
+  },
+  {
+    id: "repository-lanes-plus",
+    name: "Repository Lanes+",
+    layout: "lanes_plus",
+    density: "compact",
+    theme: "dark",
+    refreshMs: 2000,
+    maxItems: 64,
+    sort: "priority",
+    groupBy: "repository",
+    minAttention: "normal",
+    repositoryPatterns: [], workflowPatterns: [], eventPatterns: [],
+    showInProgress: true, showQueued: true, showSuccess: false,
+    showFailures: true, showOtherCompleted: true,
+    watchedOnly: false, stallsOnly: false,
+    fields: ["stage", "state", "elapsed", "ratio", "branch"],
+    showTelemetry: true, showSummary: false, showError: true,
+    showAttentionBadge: true, showWatchFlags: true, showStallFlag: true,
+    fullWidth: true, hideChrome: false,
+    motion: "subtle", reactivity: 55, showFunControls: true
+  },
+  {
+    id: "hungry-margins",
+    name: "Hungry Margins",
+    layout: "hungry_margins",
+    density: "comfortable",
+    theme: "black",
+    refreshMs: 2000,
+    maxItems: 24,
+    sort: "priority",
+    groupBy: "none",
+    minAttention: "normal",
+    repositoryPatterns: [], workflowPatterns: [], eventPatterns: [],
+    showInProgress: true, showQueued: true, showSuccess: true,
+    showFailures: true, showOtherCompleted: true,
+    watchedOnly: false, stallsOnly: false,
+    fields: ["stage", "state", "elapsed", "ratio", "branch"],
+    showTelemetry: false, showSummary: false, showError: true,
+    showAttentionBadge: true, showWatchFlags: true, showStallFlag: true,
+    fullWidth: true, hideChrome: false,
+    motion: "normal", reactivity: 75, showFunControls: true
   }
 ]);
 
@@ -254,14 +339,17 @@ export function normalizeSurface(input = {}, index = 0) {
     showWatchFlags: bool(input.showWatchFlags, fallback.showWatchFlags),
     showStallFlag: bool(input.showStallFlag, fallback.showStallFlag),
     fullWidth: bool(input.fullWidth, fallback.fullWidth),
-    hideChrome: bool(input.hideChrome, fallback.hideChrome)
+    hideChrome: bool(input.hideChrome, fallback.hideChrome),
+    motion: choice(input.motion, MOTIONS, fallback.motion || "normal"),
+    reactivity: integer(input.reactivity, fallback.reactivity ?? 50, 0, 100),
+    showFunControls: bool(input.showFunControls, fallback.showFunControls ?? true)
   };
 }
 
 export function normalizeSurfaces(value) {
   const source = Array.isArray(value) && value.length ? value : DEFAULT_SURFACES;
   const seen = new Set();
-  return source.slice(0, 16).map((surface, index) => {
+  return source.slice(0, 32).map((surface, index) => {
     const normalized = normalizeSurface(surface, index);
     let id = normalized.id;
     let suffix = 2;

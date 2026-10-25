@@ -1,3 +1,5 @@
+import { isFunLayout } from "/fun-core.js";
+import { createFunView } from "/fun-surfaces.js";
 import {
   DEFAULT_SURFACES,
   SURFACE_FIELDS,
@@ -55,6 +57,7 @@ let polling = false;
 let pollTimer = null;
 let editingSurfaces = [];
 let editingSurfaceId = null;
+let funView = null;
 
 function node(tag, className, text) {
   const el = document.createElement(tag);
@@ -227,9 +230,14 @@ function renderDashboard(state) {
 
   elements.visibleCount.textContent =
     matchedRows.length > rows.length ? rows.length + "/" + matchedRows.length : String(rows.length);
-  elements.dashboard.replaceChildren();
+  const fun = isFunLayout(surface.layout);
+  if (!fun && funView) {
+    funView.destroy();
+    funView = null;
+  }
+  if (!fun) elements.dashboard.replaceChildren();
   elements.dashboard.className = "dashboard layout-" + surface.layout + " density-" + surface.density;
-  elements.emptyState.hidden = rows.length !== 0;
+  elements.emptyState.hidden = fun || rows.length !== 0;
 
   if (rows.length === 0) {
     if (state.scannedRepositoryCount < state.repositoryCount) {
@@ -252,7 +260,16 @@ function renderDashboard(state) {
     }
   }
 
-  if (surface.layout === "table") {
+  if (fun) {
+    if (!funView || funView.id !== surface.id || funView.layout !== surface.layout) {
+      funView?.destroy();
+      elements.dashboard.replaceChildren();
+      funView = createFunView(surface, openDetail, formatDuration);
+      elements.dashboard.append(funView.root);
+      funView.mount();
+    }
+    funView.update(rows, state, surface);
+  } else if (surface.layout === "table") {
     elements.dashboard.append(renderTable(rows, surface));
   } else {
     elements.dashboard.append(renderGroups(rows, surface));
@@ -537,6 +554,9 @@ function writeSurfaceForm(surface) {
   $("#surfaceShowStallFlag").checked = surface.showStallFlag;
   $("#surfaceFullWidth").checked = surface.fullWidth;
   $("#surfaceHideChrome").checked = surface.hideChrome;
+  $("#surfaceMotion").value = surface.motion || "normal";
+  $("#surfaceReactivity").value = surface.reactivity ?? 50;
+  $("#surfaceShowFunControls").checked = surface.showFunControls !== false;
   for (const field of SURFACE_FIELDS) {
     const input = $("#field-" + field);
     if (input) input.checked = surface.fields.includes(field);
@@ -573,7 +593,10 @@ function readSurfaceForm(existing) {
     showWatchFlags: $("#surfaceShowWatchFlags").checked,
     showStallFlag: $("#surfaceShowStallFlag").checked,
     fullWidth: $("#surfaceFullWidth").checked,
-    hideChrome: $("#surfaceHideChrome").checked
+    hideChrome: $("#surfaceHideChrome").checked,
+    motion: $("#surfaceMotion").value,
+    reactivity: Number($("#surfaceReactivity").value),
+    showFunControls: $("#surfaceShowFunControls").checked
   });
 }
 
