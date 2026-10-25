@@ -223,6 +223,7 @@ export const DEFAULT_SURFACES = Object.freeze([
 export function normalizeSurface(input = {}, index = 0) {
   const fallback = DEFAULT_SURFACES[index] || DEFAULT_SURFACES[0];
   const minAttention = ATTENTION.includes(input.minAttention) ? input.minAttention : fallback.minAttention;
+  const fieldsSupplied = Object.prototype.hasOwnProperty.call(input, "fields");
   const fields = list(input.fields).filter((field) => FIELDS.has(field));
   return {
     id: safeId(input.id, "surface-" + (index + 1)),
@@ -245,7 +246,7 @@ export function normalizeSurface(input = {}, index = 0) {
     showOtherCompleted: bool(input.showOtherCompleted, fallback.showOtherCompleted),
     watchedOnly: bool(input.watchedOnly, fallback.watchedOnly),
     stallsOnly: bool(input.stallsOnly, fallback.stallsOnly),
-    fields: fields.length ? fields : [...fallback.fields],
+    fields: fieldsSupplied ? fields : [...fallback.fields],
     showTelemetry: bool(input.showTelemetry, fallback.showTelemetry),
     showSummary: bool(input.showSummary, fallback.showSummary),
     showError: bool(input.showError, fallback.showError),
