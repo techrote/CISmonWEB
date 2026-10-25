@@ -140,7 +140,7 @@ textarea { resize: vertical; }
   display: flex; align-items: stretch; border: 1px solid var(--line); background: var(--panel);
 }
 .telemetry[hidden] { display: none; }
-.telemetry > div { min-width: 78px; padding: 8px 10px; border-right: 1px solid var(--line); }
+.telemetry > div { min-width: 72px; padding: 8px 9px; border-right: 1px solid var(--line); }
 .telemetry > div:last-child { border-right: 0; }
 .label, .eyebrow {
   display: block; color: var(--dim); font-size: 9px; letter-spacing: 0.12em; margin-bottom: 4px;
@@ -205,6 +205,12 @@ main.full-width { width: calc(100% - 20px); max-width: none; }
   border: 1px solid var(--action); border-left: 4px solid var(--action);
   background: var(--panel); padding: 11px 14px; margin-bottom: 14px; font-size: 12px;
 }
+.scan-banner {
+  border: 1px solid var(--interesting); border-left: 4px solid var(--interesting);
+  background: var(--panel); color: var(--muted);
+  padding: 9px 12px; margin-bottom: 10px; font-size: 10px;
+}
+.scan-banner[hidden] { display: none; }
 .dashboard { display: grid; gap: 8px; }
 
 .surface-group { min-width: 0; }
