@@ -106,6 +106,8 @@ test("local server serves animation assets and migrates legacy profiles without 
     assert.ok(frameHtml.startsWith(original.slice(0, 300)));
     assert.ok(frameHtml.indexOf("E.register('hungry-margins'") <
       frameHtml.indexOf('id="cismon-frame-only"'));
+    assert.match(original, /function resize\(\)\{E\.w=innerWidth;E\.h=innerHeight;/);
+    assert.match(frameHtml, /function resize\(\)\{E\.w=Math\.max\(1,innerWidth\|\|canvas\.clientWidth\|\|960\)/);
     assert.match(frameHtml, /cismon-hungry-v1/);
     assert.match(frameHtml, /event\.source !== window\.parent/);
     const outer = await fetch(running.base + "/");
