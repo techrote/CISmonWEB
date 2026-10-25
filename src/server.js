@@ -75,6 +75,11 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, value);
     }
 
+    if (req.method === "PUT" && url.pathname === "/api/display") {
+      const value = await monitor.applyDisplayConfig(await readJson(req));
+      return json(res, 200, value);
+    }
+
     if (req.method === "POST" && url.pathname === "/api/refresh") {
       await monitor.refresh();
       return json(res, 200, { ok: true });

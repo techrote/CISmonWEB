@@ -96,7 +96,7 @@ export class Monitor {
         lastActivityMs: 0,
         latestUpdatedEpoch: 0,
         hadActive: false,
-        hadQueued: false,
+        hadQueued: false
       }));
 
     this.providerReady = this.repositories.length > 0;
@@ -113,6 +113,14 @@ export class Monitor {
     this.activeDetailNextMs.clear();
     this.providerReady = false;
     await this.discoverRepositories();
+    return this.configStore.publicConfig();
+  }
+
+  async applyDisplayConfig(input) {
+    this.config = await this.configStore.update({
+      surfaces: input.surfaces ?? this.config.surfaces,
+      activeSurfaceId: input.activeSurfaceId ?? this.config.activeSurfaceId
+    });
     return this.configStore.publicConfig();
   }
 
@@ -189,7 +197,7 @@ export class Monitor {
 
   async fetchRunDetails(run, nowMs, recordWhenComplete) {
     const response = await this.client.get(
-      "/repos/" + run.repository + "/actions/runs/" + run.runId + "/jobs?per_page=100",
+      "/repos/" + run.repository + "/actions/runs/" + run.runId + "/jobs?per_page=100"
     );
     this.updateRate(response, nowMs);
     if (!response.ok || !response.json) {
@@ -199,7 +207,7 @@ export class Monitor {
 
     const detailed = {
       ...run,
-      jobs: (response.json.jobs || []).map(parseJob),
+      jobs: (response.json.jobs || []).map(parseJob)
     };
     this.tracker.upsert(detailed, nowMs);
     if (recordWhenComplete && detailed.state === RunState.Completed) {
@@ -261,7 +269,7 @@ export class Monitor {
       rateLimitedUntil: this.rateLimitedUntilMs || 0,
       lastError: this.lastError,
       updatedAt: nowMs,
-      rows: buildDashboard(this.tracker, this.analyzer, nowMs, nowEpoch, 64),
+      rows: buildDashboard(this.tracker, this.analyzer, nowMs, nowEpoch, 64)
     };
   }
 
@@ -280,9 +288,9 @@ export class Monitor {
         analysis: this.analyzer.analyzeJob(run, job, nowEpoch),
         steps: (job.steps || []).map((step) => ({
           ...step,
-          analysis: this.analyzer.analyzeStep(run, job, step, nowEpoch),
-        })),
-      })),
+          analysis: this.analyzer.analyzeStep(run, job, step, nowEpoch)
+        }))
+      }))
     };
   }
 }

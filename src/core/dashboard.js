@@ -38,6 +38,9 @@ export function buildDashboard(tracker, analyzer, nowMs, nowEpoch, limit = 64) {
       runId: run.runId,
       runNumber: run.runNumber,
       branch: run.branch,
+      event: run.event,
+      headSha: run.headSha,
+      htmlUrl: run.htmlUrl,
       state: run.state,
       conclusion: run.conclusion,
       attention: AttentionLevel.Normal,
@@ -48,7 +51,7 @@ export function buildDashboard(tracker, analyzer, nowMs, nowEpoch, limit = 64) {
       ratio: 0,
       possiblyStalled: false,
       manualWatch: tracked.manualWatch,
-      acknowledged: tracked.acknowledged,
+      acknowledged: tracked.acknowledged
     };
 
     let runAnalysis;
