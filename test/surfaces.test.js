@@ -33,7 +33,7 @@ test("surface normalization clamps unsafe values and de-duplicates ids", () => {
   assert.equal(normalized.id, "my-surface");
   assert.equal(normalized.layout, "rows");
   assert.equal(normalized.refreshMs, 1000);
-  assert.equal(normalized.maxItems, 64);
+  assert.equal(normalized.maxItems, 512);
   assert.deepEqual(normalized.fields, ["stage", "elapsed"]);
   assert.deepEqual(normalizeSurface({ fields: [] }).fields, []);
 
