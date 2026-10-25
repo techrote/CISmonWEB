@@ -7,6 +7,8 @@ import {
   summarizeFunRows
 } from "/fun-core.js";
 import { createFunEngine } from "/fun-engine.js";
+import { createHungryFrameEngine } from "/hungry-frame-engine.js";
+import { projectHungryCI } from "/hungry-ci.js";
 import { groupRows } from "/surfaces.js";
 
 const labelFor = {
@@ -41,7 +43,7 @@ function stateClass(row) {
     row.attention === "suspicious" ? "suspicious" : "terminal";
 }
 
-function makeRow(row, mode, openRun, formatDuration, surface) {
+function makeRow(row, mode, openRun, formatDuration, surface, onFocus = null) {
   const button = el("button", "living-run living-run-" + mode + " living-state-" + stateClass(row));
   button.type = "button";
   button.dataset.runKey = runIdentity(row);
@@ -81,6 +83,7 @@ function makeRow(row, mode, openRun, formatDuration, surface) {
 
   button.append(repo, title, lower);
   button.addEventListener("click", () => openRun(row.repository, row.runId));
+  if (onFocus) button.addEventListener("pointerenter", () => onFocus(row));
   return button;
 }
 
@@ -111,7 +114,7 @@ function renderLaneList(rows, target, openRun, formatDuration, surface) {
   }
 }
 
-function renderRunList(rows, layout, target, openRun, formatDuration, surface) {
+function renderRunList(rows, layout, target, openRun, formatDuration, surface, onFocus = null) {
   target.replaceChildren();
   const groups = groupRows(rows, surface);
   for (const group of groups) {
@@ -121,7 +124,7 @@ function renderRunList(rows, layout, target, openRun, formatDuration, surface) {
     }
     const inside = group.label ? el("div", "living-group-cards") : target;
     for (const row of group.rows) {
-      inside.append(makeRow(row, layout, openRun, formatDuration, surface));
+      inside.append(makeRow(row, layout, openRun, formatDuration, surface, onFocus));
     }
     if (group.label) {
       wrapper.append(inside);
@@ -134,7 +137,9 @@ export function createFunView(surface, openRun, formatDuration) {
   const mode = surface.layout;
   const root = el("section", "living-surface living-" + mode);
   root.dataset.mode = mode;
-  const canvas = el("canvas", "living-canvas");
+  const canvas = mode === "hungry_margins"
+    ? el("iframe", "living-canvas living-original-art")
+    : el("canvas", "living-canvas");
   canvas.setAttribute("role", "img");
   canvas.setAttribute("aria-label",
     mode === "hungry_margins"
@@ -169,22 +174,37 @@ export function createFunView(surface, openRun, formatDuration) {
 
   const footer = el("footer", "living-footer");
   const hint = el("span", "", mode === "hungry_margins"
-    ? "MOVE TO DISTURB / HOLD TO LET THE MARGINS FEED"
+    ? "AUTONOMOUS FEEDING / POINTER SUPERCEDES IDLE / HOVER RUNS TO DISTURB"
     : mode === "afterimage" ? "ONLY TRANSITIONS OBSERVED WHILE THIS VIEW IS OPEN BECOME ECHOES"
       : "LIVE CI STATE / EXPLORATORY VISUAL ENCODING");
-  const sourceLabel = el("span", "", mode === "hungry_margins" ? "DERIVED FROM 037 / HUNGRY MARGINS" : "CISMON / LIVE");
+  const sourceLabel = el("span", "", mode === "hungry_margins" ? "ORIGINAL 037 / ISOLATED FRAME" : "CISMON / LIVE");
   footer.append(hint, sourceLabel);
-  overlay.append(top, metrics, content, footer);
+  if (mode === "hungry_margins") {
+    const guide = el("div", "living-ci-legend");
+    guide.append(
+      el("span", "", "RUNNING · roaming organism / moving trails"),
+      el("span", "", "QUEUED · margins feed inward"),
+      el("span", "", "FAILED · scars / deeper contamination"),
+      el("span", "", "SUCCESS · local release"),
+      el("span", "", "STALL · unstable vibration")
+    );
+    overlay.append(top, metrics, content, guide, footer);
+  } else {
+    overlay.append(top, metrics, content, footer);
+  }
   root.append(canvas, overlay);
 
   let seen = new Map();
   let events = [];
   let lastUpdate = null;
   let destroyed = false;
-  const engine = createFunEngine(canvas, mode, (isPaused) => {
+  const engine = (mode === "hungry_margins" ? createHungryFrameEngine(canvas, (isPaused) => {
     pause.textContent = isPaused ? "Resume" : "Pause";
     pause.setAttribute("aria-pressed", String(isPaused));
-  });
+  }) : createFunEngine(canvas, mode, (isPaused) => {
+    pause.textContent = isPaused ? "Resume" : "Pause";
+    pause.setAttribute("aria-pressed", String(isPaused));
+  }));
 
   pause.addEventListener("click", () => engine.pause(!engine.paused));
   reset.addEventListener("click", () => {
@@ -201,17 +221,19 @@ export function createFunView(surface, openRun, formatDuration) {
     lastUpdate = { rows, state, surface: latestSurface };
     const counts = summarizeFunRows(rows);
     const clock = Number(state.updatedAt) ? new Date(state.updatedAt).toLocaleTimeString() : "—";
-    const changed = observeTransitions(seen, rows, performance.now());
+    const observedRows = mode === "hungry_margins" && Array.isArray(state.rows) ? state.rows : rows;
+    const changed = observeTransitions(seen, observedRows, performance.now());
     seen = changed.next;
     events.push(...changed.changes);
     if (events.length > 32) events = events.slice(-32);
 
     readout.replaceChildren();
     if (mode === "hungry_margins") {
-      const score = illustrativeCoherence(rows);
+      const score = illustrativeCoherence(observedRows);
+      const globalScene = projectHungryCI(observedRows);
       readout.append(
         el("strong", "", "COHERENCE " + score.toFixed(3) + "%"),
-        el("small", "", "ARTISTIC INDEX / NOT A HEALTH SCORE")
+        el("small", "", "ILLUSTRATIVE / QUEUE PRESSURE " + Math.round(globalScene.queuePressure * 100) + "%")
       );
     } else if (mode === "afterimage") {
       readout.append(el("strong", "", events.length + " OBSERVED ECHOES"));
@@ -220,17 +242,23 @@ export function createFunView(surface, openRun, formatDuration) {
     }
     readout.append(el("small", "", "UPDATED " + clock));
     controls.hidden = latestSurface.showFunControls === false;
+    const globalCounts = mode === "hungry_margins" ? summarizeFunRows(observedRows) : counts;
     metrics.replaceChildren(
-      metric("RUNNING", counts.running),
-      metric("QUEUED", counts.queued),
-      metric("FAILURES", counts.failures),
-      metric("ACTIVITY", counts.total, "MATCHED IN SURFACE")
+      metric(mode === "hungry_margins" ? "RUNNING · GLOBAL" : "RUNNING",
+        mode === "hungry_margins" && Number.isInteger(state.trackedActiveCount) ? state.trackedActiveCount : globalCounts.running),
+      metric(mode === "hungry_margins" ? "QUEUED · GLOBAL" : "QUEUED",
+        mode === "hungry_margins" && Number.isInteger(state.trackedQueuedCount) ? state.trackedQueuedCount : globalCounts.queued),
+      metric("FAILURES", globalCounts.failures, mode === "hungry_margins" ? "RECENT TRACKED" : ""),
+      metric(mode === "hungry_margins" ? "STALLED" : "ACTIVITY",
+        mode === "hungry_margins" ? observedRows.filter(row => row.possiblyStalled).length : counts.total,
+        mode === "hungry_margins" ? "POSSIBLE STALLS" : "MATCHED IN SURFACE")
     );
 
     if (mode === "lanes_plus") {
       renderLaneList(rows, list, openRun, formatDuration, latestSurface);
     } else {
-      renderRunList(rows, mode, list, openRun, formatDuration, latestSurface);
+      renderRunList(rows, mode, list, openRun, formatDuration, latestSurface,
+        mode === "hungry_margins" ? row => engine.focus(row) : null);
     }
 
     if (!rows.length) {
@@ -247,7 +275,7 @@ export function createFunView(surface, openRun, formatDuration) {
       content.append(timeline);
     }
 
-    engine.update(rows, latestSurface, changed.changes);
+    engine.update(rows, latestSurface, changed.changes, state);
     const staticMode = engine.reduced || latestSurface.motion === "off";
     pause.disabled = staticMode;
     pause.textContent = staticMode ? "Static" : engine.paused ? "Resume" : "Pause";
