@@ -37,7 +37,9 @@ export class GitHubClient {
 }
 
 export function parseState(value) {
-  if (value === "queued" || value === "waiting" || value === "pending") return RunState.Queued;
+  if (value === "queued" || value === "waiting" || value === "pending" || value === "requested") {
+    return RunState.Queued;
+  }
   if (value === "in_progress") return RunState.InProgress;
   if (value === "completed") return RunState.Completed;
   return RunState.Unknown;
