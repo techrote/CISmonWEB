@@ -8,6 +8,7 @@
   const clamp = (v, min = 0, max = 1) => Math.max(min, Math.min(max, Number.isFinite(v) ? v : 0));
   let lastRealPointerAt = -Infinity;
   let scene = null;
+  const seededScars = new Set();
   let consentedPaused = E.paused;
 
   // Native mouse/touch still drives the actual original handlers. We avoid
@@ -92,6 +93,17 @@
   function setScene(input) {
     if (!input || typeof input !== "object") return;
     scene = input;
+    // Existing failed workflows leave one subtle initial deposit each. This
+    // is a current-state visual marker, NOT an invented failure transition.
+    for (const anchor of (Array.isArray(input.anchors) ? input.anchors : []).slice(0, 48)) {
+      if (!anchor || typeof anchor !== "object") continue;
+      const status = String(anchor.status || "");
+      if (!["failure", "timed_out", "action_required", "startup_failure", "stale"].includes(status)) continue;
+      const id = String(anchor.hash);
+      if (seededScars.has(id)) continue;
+      seededScars.add(id);
+      E.infect(clamp(Number(anchor.x)), clamp(Number(anchor.y)), .12);
+    }
     const queue = clamp(Number(input.queuePressure));
     const fail = clamp(Number(input.failurePressure));
     const stalls = clamp(Number(input.stallPressure));
@@ -125,6 +137,7 @@
       case "pause": setPaused(payload?.paused); break;
       case "reseed":
         document.getElementById("reset")?.click();
+        seededScars.clear();
         if (scene) setScene(scene);
         break;
       case "capture": exportCanvas(); break;
