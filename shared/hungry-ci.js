@@ -98,6 +98,11 @@ export function hungryAmbientEvents(scene, tickIndex) {
   // Low-frequency CI-dependent pulses, never invented state transitions.
   if (!scene.anchors.length) return [];
   const index = Math.max(0, Math.floor(tickIndex));
+  const unstable = scene.anchors.filter(anchor => anchor.stalled);
+  if (unstable.length && index % 4 === 0) {
+    const row = unstable[Math.floor(index / 4) % unstable.length];
+    return [{ x: row.x, y: row.y, force: .46, kind: "stall" }];
+  }
   const row = scene.anchors[index % scene.anchors.length];
   if (row.status === "in_progress") {
     return [{ x: row.x, y: row.y, force: .28, kind: row.stalled ? "stall" : "running" }];
