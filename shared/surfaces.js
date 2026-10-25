@@ -252,7 +252,7 @@ export const DEFAULT_SURFACES = Object.freeze([
     groupBy: "none",
     minAttention: "normal",
     repositoryPatterns: [], workflowPatterns: [], eventPatterns: [],
-    showInProgress: true, showQueued: true, showSuccess: false,
+    showInProgress: true, showQueued: true, showSuccess: true,
     showFailures: true, showOtherCompleted: true,
     watchedOnly: false, stallsOnly: false,
     fields: ["stage", "state", "elapsed", "branch"],
@@ -349,7 +349,7 @@ export function normalizeSurface(input = {}, index = 0) {
 export function normalizeSurfaces(value) {
   const source = Array.isArray(value) && value.length ? value : DEFAULT_SURFACES;
   const seen = new Set();
-  return source.slice(0, 16).map((surface, index) => {
+  return source.slice(0, 32).map((surface, index) => {
     const normalized = normalizeSurface(surface, index);
     let id = normalized.id;
     let suffix = 2;
