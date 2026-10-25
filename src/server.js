@@ -90,7 +90,6 @@ export async function serveHungryFrame(res) {
       "img-src data: blob:; connect-src 'none'; font-src 'none'; object-src 'none'; " +
       "form-action 'none'; base-uri 'none'; frame-ancestors 'self'",
     "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "SAMEORIGIN",
     "Referrer-Policy": "no-referrer"
   });
   res.end(html);
