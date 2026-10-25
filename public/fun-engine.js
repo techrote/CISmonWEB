@@ -105,7 +105,7 @@ export function createFunEngine(canvas, layout, onChange = noop) {
       const center = height * .15 + ((i + .5) / count) * zone;
       const frequency = 1.8 + (id % 7) * .37;
       const amplitude = (row.state === "in_progress" ? 10 : row.state === "queued" ? 5 : 2.4) *
-        Math.max(.3, Math.min(2, height / 600));
+        Math.max(.3, Math.min(2, height / 600)) * (1 + energy * .45);
       const pulse = row.state === "in_progress" ? (1 + .2 * Math.sin(time * 2.1 + i)) : 1;
 
       ctx.beginPath();
@@ -175,7 +175,7 @@ export function createFunEngine(canvas, layout, onChange = noop) {
       const row = rows[i], id = hashRunId(row.repository + ":" + row.runId);
       const x = seededNoise(id, seed) * width;
       const y = seededNoise(id + 1, seed) * height;
-      const shift = Math.sin(time * .24 + i) * 15;
+      const shift = Math.sin(time * .24 + i) * 15 + energy * 12;
       ctx.strokeStyle = activeColor(row);
       ctx.globalAlpha = row.state === "completed" ? .1 : .25;
       for (let j = 0; j < 3; j++) {
@@ -195,7 +195,7 @@ export function createFunEngine(canvas, layout, onChange = noop) {
       const id = hashRunId(row.repository);
       const x = width * (.08 + seededNoise(id, seed) * .84);
       const y = height * (.1 + seededNoise(id + i * 19, seed) * .8);
-      const pulse = row.state === "in_progress" ? Math.sin(time * 1.5 + i) * 6 : 0;
+      const pulse = (row.state === "in_progress" ? Math.sin(time * 1.5 + i) * 6 : 0) + energy * 3;
       ctx.strokeStyle = activeColor(row);
       ctx.globalAlpha = row.state === "completed" ? .13 : .32;
       ctx.lineWidth = row.state === "in_progress" ? 1.2 : .5;
@@ -389,6 +389,8 @@ export function createFunEngine(canvas, layout, onChange = noop) {
       tickInteractions();
       updateWave(dt);
       evolveEdges(dt);
+    } else {
+      energy *= Math.exp(-dt * 1.6);
     }
     impulses = impulses.filter((p) => time - p.at < 22);
     transitions = transitions.filter((p) => time * 1000 - p.visualTimeMs < 40000);
@@ -412,6 +414,9 @@ export function createFunEngine(canvas, layout, onChange = noop) {
     lastPointer = { x, y };
     pointer = { x, y };
     inside = true;
+    if (layout !== "hungry_margins" && distance > .001) {
+      energy = clamp(energy + distance * reactivity / 100 * 3.5);
+    }
     if (layout === "hungry_margins" && distance > .001) {
       const steps = Math.min(12, Math.ceil(distance * 80));
       for (let i = 0; i < steps; i++) pulseWave(x, y, Math.min(6, (1 + distance * 200) * reactivity / 100) / steps);
