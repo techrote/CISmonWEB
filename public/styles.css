@@ -695,3 +695,18 @@ body.surface-hide-chrome main { padding-top: 10px; }
   .living-control { padding: 8px; font-size: 9px; }
   .living-lanes_plus .living-list { grid-template-columns: 1fr; }
 }
+
+
+.living-run-attention { color: #d7a47c; text-transform: uppercase; letter-spacing: .07em; }
+.living-run-field { color: var(--living-muted); }
+.living-group { grid-column: 1 / -1; min-width: 0; }
+.living-group-heading {
+  font-size: 10px; letter-spacing: .12em; color: var(--living-muted);
+  text-transform: uppercase; border-bottom: 1px solid var(--living-line);
+  padding: 10px 12px; background: var(--living-panel);
+}
+.living-group-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 10px 0; }
+.living-hungry_margins .living-group-cards { grid-template-columns: 1fr; }
+.living-afterimage .living-group-cards { gap: 18px; }
+.living-control:disabled { cursor: not-allowed; color: var(--living-muted); opacity: .65; }
+@media (max-width: 900px) { .living-group-cards { grid-template-columns: 1fr; } }
