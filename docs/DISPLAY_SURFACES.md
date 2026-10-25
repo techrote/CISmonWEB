@@ -44,9 +44,14 @@ Per-repository activity boards with true running/queued/failure counts. The soft
 
 ### Hungry Margins (037)
 
-Derived from the user-supplied **037 / Hungry Margins** interactive HTML artwork, not from 031 / Shear Crystallization. This implementation translates its olive-black quiet substrate, broken reliquary seals, settling ash, resonant pressure waves, contact-borne surface contamination, and edges that flinch and subsequently regrow around the pointer. Run cards and exact statuses remain accessible HTML above the canvas.
+Uses the **directly imported user-supplied 037 / Hungry Margins** artwork, not the earlier 031 / Shear Crystallization piece or a simplified replacement renderer. Its original painting pipeline runs inside an isolated iframe with the user-supplied HTML source preserved separately.
 
-The displayed **COHERENCE** percentage is a labelled illustrative visual index computed from *currently surface-matched* workflow states. It is not GitHub health, a historical failure rate, reliability, or a machine-learned model. No automatic repository actions are triggered by the artwork.
+A bounded virtual-brush adapter drives the original living resonance, chromatic slug, contamination and reactive margins from two autonomous idle paths and real CI state. The backdrop reads **all dashboard candidates**, independent of the surface's filtered displayed rows: running work animates the interior, queued work presses boundaries inward, stalls create unstable pulses, existing failures leave one-time faint marks, and newly **observed** failure/success transitions create local contamination or release. Human pointer input takes priority over autonomous movement.
+
+Exact CI run states remain clickable HTML in a narrow right-hand rail. The **COHERENCE** percentage and queue pressure are explicitly labelled artistic encodings, not actual GitHub health or reliability metrics. No repository action is ever triggered by the artwork.
+
+See [HUNGRY_MARGINS_CI.md](HUNGRY_MARGINS_CI.md) for direct-source integrity, motion model, controls, isolation boundary and tests.
+
 
 ## Profile properties
 

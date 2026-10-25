@@ -73,7 +73,8 @@ test("local server serves animation assets and migrates legacy profiles without 
       "signal-retention", "afterimage-debt", "repository-lanes-plus", "hungry-margins"
     ]);
 
-    for (const asset of ["/fun-core.js", "/fun-engine.js", "/fun-surfaces.js"]) {
+    for (const asset of ["/fun-core.js", "/fun-engine.js", "/fun-surfaces.js",
+      "/hungry-ci.js", "/hungry-frame-engine.js"]) {
       const response = await fetch(running.base + asset);
       assert.equal(response.status, 200, asset);
       assert.match(response.headers.get("content-type"), /javascript/);
@@ -82,6 +83,36 @@ test("local server serves animation assets and migrates legacy profiles without 
     const page = await (await fetch(running.base + "/")).text();
     assert.match(page, /hungry_margins/);
     assert.match(page, /surfaceMotion/);
+
+    // 037 is the actual imported original, not a facsimile drawn by CSS.
+    const original = await readFile(path.join("public", "art", "037-hungry-margins3.html"), "utf8");
+    assert.match(original, /E\.register\('living-resonance'/);
+    assert.match(original, /E\.register\('chromatic-slug'/);
+    assert.match(original, /E\.register\('living-contamination'/);
+    assert.match(original, /E\.register\('hungry-margins'/);
+    assert.match(original, /E\.register\('quiet-substrate'/);
+
+    const raw = await fetch(running.base + "/art/037-hungry-margins3.html");
+    assert.equal(raw.status, 200);
+    assert.match(raw.headers.get("content-type"), /text\/plain/);
+    assert.equal(await raw.text(), original);
+
+    const frame = await fetch(running.base + "/art/hungry-frame");
+    assert.equal(frame.status, 200);
+    assert.match(frame.headers.get("content-type"), /text\/html/);
+    assert.match(frame.headers.get("content-security-policy"), /connect-src 'none'/);
+    assert.match(frame.headers.get("content-security-policy"), /script-src 'unsafe-inline'/);
+    const frameHtml = await frame.text();
+    assert.ok(frameHtml.startsWith(original.slice(0, 300)));
+    assert.ok(frameHtml.indexOf("E.register('hungry-margins'") <
+      frameHtml.indexOf('id="cismon-frame-only"'));
+    assert.match(original, /function resize\(\)\{E\.w=innerWidth;E\.h=innerHeight;/);
+    assert.match(frameHtml, /function resize\(\)\{E\.w=Math\.max\(1,innerWidth\|\|canvas\.clientWidth\|\|960\)/);
+    assert.match(frameHtml, /cismon-hungry-v1/);
+    assert.match(frameHtml, /event\.source !== window\.parent/);
+    const outer = await fetch(running.base + "/");
+    assert.match(outer.headers.get("content-security-policy"), /frame-src 'self'/);
+    assert.doesNotMatch(outer.headers.get("content-security-policy"), /unsafe-inline/);
 
     const selected = await fetch(running.base + "/api/display", {
       method: "PUT", headers: { "Content-Type": "application/json" },

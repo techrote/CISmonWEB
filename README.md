@@ -48,7 +48,7 @@ Built-in profiles:
 | Signal Retention | oscilloscope-like data-driven waveform field |
 | Afterimage Debt | ghosted cards plus transitions actually observed in this browser |
 | Repository Lanes+ | animated per-repository operational boards |
-| Hungry Margins | interactive olive-black living substrate based on the provided artwork |
+| Hungry Margins | directly embedded original 037 artwork, autonomously animated and driven by actual CI state |
 
 Each surface can independently configure layout, density, theme, refresh cadence, maximum items, sorting, grouping, minimum attention level, repository/workflow/event globs, run-state visibility, watched-only/stalls-only filters, visible fields, telemetry, error/summary chrome, full-width mode and kiosk/minimal chrome.
 
@@ -65,6 +65,15 @@ A surface can be addressed directly with a URL such as:
 Use the **Surface** button to edit, create, duplicate, delete or reset profiles. Fullscreen is available from the top toolbar.
 
 See docs/DISPLAY_SURFACES.md for the complete model.
+
+### Original 037 artwork and autonomous CI visuals
+
+Hungry Margins now runs the **actual uploaded 037 HTML/Canvas artwork** inside an isolated frame instead of the old simplified renderer. The original liquid/resonance, chromatic slug, contamination, broken seals and reactive hungry-margin effects remain intact. A separate CI bridge sends bounded virtual brush movements even while idle, and uses running/queued/stalled states plus actual observed transitions to drive distinctive activity.
+
+This surface reflects **all current monitor candidates**, not only the items in its HTML run list. Queue pressure drives the margins, running work feeds an internal wandering organism, stalled runs trigger unstable pulses, existing failures leave faint one-time scars, observed failures produce stronger contamination, and observed successes relax a local area. Human input takes priority over the autonomous movement.
+
+[Hungry Margins visual architecture](docs/HUNGRY_MARGINS_CI.md) documents exact source provenance, event semantics, input controls and the sandbox boundary. The artwork does not change GitHub Actions or CI polling.
+
 
 ## Web-specific architecture
 
