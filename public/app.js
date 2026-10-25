@@ -1,8 +1,9 @@
 import {
   DEFAULT_SURFACES,
   SURFACE_FIELDS,
-  applySurface,
+  filterRows,
   groupRows,
+  sortRows,
   normalizeSurface,
   normalizeSurfaces
 } from "/surfaces.js";
@@ -15,6 +16,7 @@ const elements = {
   repoCount: $("#repoCount"),
   scannedRepoCount: $("#scannedRepoCount"),
   trackedCount: $("#trackedCount"),
+  liveCount: $("#liveCount"),
   visibleCount: $("#visibleCount"),
   rateRemaining: $("#rateRemaining"),
   updatedAt: $("#updatedAt"),
@@ -219,9 +221,12 @@ function renderGroups(rows, surface) {
 function renderDashboard(state) {
   latestState = state;
   const surface = activeSurface();
-  const rows = applySurface(state.rows || [], surface);
+  const matchedRows = filterRows(state.rows || [], surface);
+  const orderedRows = sortRows(matchedRows, surface);
+  const rows = orderedRows.slice(0, surface.maxItems);
 
-  elements.visibleCount.textContent = String(rows.length);
+  elements.visibleCount.textContent =
+    matchedRows.length > rows.length ? rows.length + "/" + matchedRows.length : String(rows.length);
   elements.dashboard.replaceChildren();
   elements.dashboard.className = "dashboard layout-" + surface.layout + " density-" + surface.density;
   elements.emptyState.hidden = rows.length !== 0;
@@ -260,7 +265,9 @@ function renderDashboard(state) {
     suspicious: rows.filter((row) => row.attention === "suspicious").length
   };
   elements.surfaceSummary.textContent =
-    rows.length + " shown · " + counts.active + " running · " + counts.queued +
+    rows.length + " shown" +
+    (matchedRows.length > rows.length ? " of " + matchedRows.length + " matching" : "") +
+    " · " + counts.active + " running · " + counts.queued +
     " queued · " + counts.suspicious + " suspicious · " + counts.alerts + " action required";
 }
 
@@ -323,6 +330,8 @@ async function pollState() {
     elements.scannedRepoCount.textContent =
       String(state.scannedRepositoryCount) + "/" + String(state.repositoryCount);
     elements.trackedCount.textContent = String(state.trackedRunCount);
+    elements.liveCount.textContent =
+      String(state.trackedActiveCount) + "/" + String(state.trackedQueuedCount);
     elements.rateRemaining.textContent = state.rateRemaining >= 0 ? String(state.rateRemaining) : "—";
     elements.updatedAt.textContent = new Date(state.updatedAt).toLocaleTimeString();
 

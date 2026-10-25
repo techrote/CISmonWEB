@@ -20,16 +20,28 @@ function applyAnalysis(item, analysis) {
 
 function score(item) {
   let result = attentionRank(item.attention) * 1000;
-  if (item.state === RunState.InProgress) result += 300;
-  else if (item.state === RunState.Queued) result += 200;
+
+  // A local CI monitor must never allow historical terminal alerts to push
+  // current work out of a bounded display candidate set.
+  if (item.state === RunState.InProgress) result += 10000;
+  else if (item.state === RunState.Queued) result += 9000;
+
   if (item.manualWatch) result += 100;
   result += Math.min(Math.floor(item.elapsedMs / 60000), 99);
   return result;
 }
 
-export function buildDashboard(tracker, analyzer, nowMs, nowEpoch, limit = 64) {
+export function buildDashboard(
+  tracker,
+  analyzer,
+  nowMs,
+  nowEpoch,
+  limit = 64,
+  successTtlMs = 3600000,
+  terminalTtlMs = 3600000
+) {
   const result = [];
-  for (const tracked of tracker.visible(nowMs)) {
+  for (const tracked of tracker.visible(nowMs, successTtlMs, terminalTtlMs)) {
     const run = tracked.snapshot;
     const item = {
       repository: run.repository,
@@ -62,7 +74,12 @@ export function buildDashboard(tracker, analyzer, nowMs, nowEpoch, limit = 64) {
       const localElapsed = isTerminal(run.state) && tracked.terminalSinceMs
         ? tracked.terminalSinceMs - tracked.firstSeenMs
         : nowMs - tracked.firstSeenMs;
-      runAnalysis = analyzer.analyze(baselineKey.run(run), localElapsed, isTerminal(run.state), run.conclusion);
+      runAnalysis = analyzer.analyze(
+        baselineKey.run(run),
+        localElapsed,
+        isTerminal(run.state),
+        run.conclusion
+      );
       item.elapsedMs = localElapsed;
     }
     applyAnalysis(item, runAnalysis);
