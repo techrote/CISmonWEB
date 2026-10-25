@@ -88,8 +88,11 @@ test("poll policy and glob semantics match firmware core", () => {
 
 test("GitHub normalization handles queued aliases and conclusions", () => {
   assert.equal(parseState("waiting"), RunState.Queued);
+  assert.equal(parseState("pending"), RunState.Queued);
+  assert.equal(parseState("requested"), RunState.Queued);
   assert.equal(parseState("in_progress"), RunState.InProgress);
   assert.equal(parseConclusion("timed_out"), Conclusion.TimedOut);
+  assert.equal(parseConclusion("stale"), Conclusion.Stale);
   assert.equal(parseConclusion("made_up"), Conclusion.Unknown);
 });
 
