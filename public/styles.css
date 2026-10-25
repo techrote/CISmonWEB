@@ -307,7 +307,7 @@ main.full-width { width: calc(100% - 20px); max-width: none; }
 .layout-lanes .field-cell[data-field="state"],
 .layout-lanes .field-cell[data-field="elapsed"],
 .layout-lanes .field-cell[data-field="stage"] { display: flex; }
-.layout-lanes .density-ultra .field-cell[data-field="stage"] { display: none; }
+.layout-lanes.density-ultra .field-cell[data-field="stage"] { display: none; }
 
 .table-wrap { width: 100%; overflow: auto; border: 1px solid var(--line); }
 .surface-table {
@@ -405,6 +405,22 @@ main.full-width { width: calc(100% - 20px); max-width: none; }
 }
 .compact-field { display: grid; gap: 5px; min-width: 230px; }
 .surface-editor { max-height: calc(100vh - 230px); overflow: auto; }
+
+.kiosk-surface-button {
+  display: none;
+  position: fixed;
+  right: 8px;
+  bottom: 8px;
+  z-index: 30;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 86%, transparent);
+  color: var(--muted);
+  padding: 5px 8px;
+  font-size: 9px;
+  opacity: .35;
+}
+.kiosk-surface-button:hover, .kiosk-surface-button:focus-visible { opacity: 1; color: var(--text); }
+body.surface-hide-chrome .kiosk-surface-button { display: block; }
 
 body.surface-hide-chrome .brand,
 body.surface-hide-chrome .toolbar { display: none; }
