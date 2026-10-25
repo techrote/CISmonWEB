@@ -11,12 +11,14 @@ import {
   shouldServiceActive,
   takeSweepBatch
 } from "./scheduler.js";
+import { shouldTrackSummaryRun } from "./summary-policy.js";
 
 const REQUEST_SPACING_MS = 1000;
 const BACKFILL_SPACING_MS = 1200;
 const FAST_SWEEP_BATCH_SIZE = 6;
 const ACTIVE_DETAIL_BURST_LIMIT = 3;
-const DASHBOARD_CANDIDATE_LIMIT = 512;
+const DASHBOARD_CANDIDATE_LIMIT = 4096;
+const TERMINAL_IMPORT_LOOKBACK_MS = 3600000;
 
 function detailKey(run) {
   return run.repository + "#" + run.runId;
@@ -204,7 +206,11 @@ export class Monitor {
       const run = parseRun(raw, repo.fullName);
       if (!run.runId) continue;
       newestUpdated = Math.max(newestUpdated, run.updatedAtEpoch);
-      this.tracker.upsert(run, nowMs);
+
+      const existing = this.tracker.find(run.repository, run.runId);
+      if (shouldTrackSummaryRun(run, Boolean(existing), nowMs, TERMINAL_IMPORT_LOOKBACK_MS)) {
+        this.tracker.upsert(run, nowMs);
+      }
 
       if (run.state === RunState.InProgress) {
         hasActive = true;
@@ -263,7 +269,13 @@ export class Monitor {
       ...run,
       jobs: (response.json.jobs || []).map(parseJob)
     };
-    this.tracker.upsert(detailed, nowMs);
+
+    const existing = this.tracker.find(detailed.repository, detailed.runId);
+    if (!recordWhenComplete ||
+        shouldTrackSummaryRun(detailed, Boolean(existing), nowMs, TERMINAL_IMPORT_LOOKBACK_MS)) {
+      this.tracker.upsert(detailed, nowMs);
+    }
+
     if (recordWhenComplete && detailed.state === RunState.Completed) {
       await this.history.recordRun(detailed);
     }
