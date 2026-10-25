@@ -74,8 +74,8 @@ export function observeTransitions(previous, rows, nowMs) {
 
 export function migrateFunPresets(saved, defaults, previousVersion) {
   if (Number(previousVersion) >= FUN_PRESET_VERSION) return saved;
-  const present = new Set((Array.isArray(saved) ? saved : []).map((entry) => entry && entry.id));
   const incoming = Array.isArray(saved) && saved.length ? [...saved] : [...defaults];
+  const present = new Set(incoming.map((entry) => entry && entry.id));
   for (const surface of defaults) {
     if (!FUN_LAYOUTS.includes(surface.layout) || present.has(surface.id)) continue;
     incoming.push(surface);
