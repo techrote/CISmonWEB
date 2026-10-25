@@ -55,7 +55,10 @@ async function serveStatic(urlPath, res) {
     "/": [path.join(publicDir, "index.html"), "text/html; charset=utf-8"],
     "/app.js": [path.join(publicDir, "app.js"), "text/javascript; charset=utf-8"],
     "/styles.css": [path.join(publicDir, "styles.css"), "text/css; charset=utf-8"],
-    "/surfaces.js": [path.join(sharedDir, "surfaces.js"), "text/javascript; charset=utf-8"]
+    "/surfaces.js": [path.join(sharedDir, "surfaces.js"), "text/javascript; charset=utf-8"],
+    "/fun-core.js": [path.join(sharedDir, "fun-core.js"), "text/javascript; charset=utf-8"],
+    "/fun-engine.js": [path.join(publicDir, "fun-engine.js"), "text/javascript; charset=utf-8"],
+    "/fun-surfaces.js": [path.join(publicDir, "fun-surfaces.js"), "text/javascript; charset=utf-8"]
   };
   const route = routes[urlPath];
   if (!route) return false;
