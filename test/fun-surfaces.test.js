@@ -41,6 +41,8 @@ test("existing custom surfaces migrate exactly once without overwrites or duplic
   const afterDelete = migrated.filter(s=>s.id!=="hungry-margins");
   assert.deepEqual(migrateFunPresets(afterDelete, DEFAULT_SURFACES, FUN_PRESET_VERSION), afterDelete);
   assert.deepEqual(migrateFunPresets(migrated, DEFAULT_SURFACES, 0), migrated);
+  assert.equal(migrateFunPresets(undefined, DEFAULT_SURFACES, 0).length, DEFAULT_SURFACES.length);
+  assert.equal(migrateFunPresets([], DEFAULT_SURFACES, 0).length, DEFAULT_SURFACES.length);
 });
 
 test("legacy config normalization retains token and display overrides", () => {
