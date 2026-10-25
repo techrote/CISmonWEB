@@ -47,9 +47,11 @@ export function createHungryFrameEngine(iframe, onChange = () => {}) {
     tick++;
     const t = (performance.now() - startAt) / 1000;
     const strokes = hungryIdleStrokes(scene, t, surface.motion, surface.reactivity);
-    for (const stroke of strokes) {
-      if (stroke.force > .001) post("stroke", stroke);
-    }
+    // The original has one memory-bearing pointer, not two independent brush
+    // heads. Time-slice the edge feeder and centre slug in long arcs instead
+    // of teleporting between them on every frame.
+    const brush = strokes[Math.floor(t / 3.2) % Math.max(strokes.length, 1)];
+    if (brush && brush.force > .001) post("stroke", brush);
     if (performance.now() - lastAmbient >= 1200) {
       lastAmbient = performance.now();
       const ambient = hungryAmbientEvents(scene, Math.floor(t / 1.2));
