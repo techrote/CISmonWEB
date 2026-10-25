@@ -31,6 +31,7 @@ body[data-theme="black"] {
 }
 
 body[data-theme="light"] {
+  color-scheme: light;
   --bg: #e9ecec;
   --panel: #f7f8f8;
   --panel-2: #fff;
@@ -427,6 +428,7 @@ body.surface-hide-chrome .toolbar { display: none; }
 body.surface-hide-chrome .topbar {
   min-height: 48px; grid-template-columns: 1fr; padding: 5px 10px; position: static;
 }
+body.surface-hide-topbar .topbar { display: none; }
 body.surface-hide-chrome .telemetry { justify-self: stretch; width: 100%; }
 body.surface-hide-chrome .telemetry > div { flex: 1; }
 body.surface-hide-chrome main { padding-top: 10px; }
