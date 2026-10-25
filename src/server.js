@@ -58,6 +58,8 @@ async function serveStatic(urlPath, res) {
     "/styles.css": [path.join(publicDir, "styles.css"), "text/css; charset=utf-8"],
     "/surfaces.js": [path.join(sharedDir, "surfaces.js"), "text/javascript; charset=utf-8"],
     "/fun-core.js": [path.join(sharedDir, "fun-core.js"), "text/javascript; charset=utf-8"],
+    "/hungry-ci.js": [path.join(sharedDir, "hungry-ci.js"), "text/javascript; charset=utf-8"],
+    "/hungry-frame-engine.js": [path.join(publicDir, "hungry-frame-engine.js"), "text/javascript; charset=utf-8"],
     "/fun-engine.js": [path.join(publicDir, "fun-engine.js"), "text/javascript; charset=utf-8"],
     "/fun-surfaces.js": [path.join(publicDir, "fun-surfaces.js"), "text/javascript; charset=utf-8"]
   };
