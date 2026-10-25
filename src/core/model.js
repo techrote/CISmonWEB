@@ -15,6 +15,7 @@ export const Conclusion = Object.freeze({
   Neutral: "neutral",
   ActionRequired: "action_required",
   StartupFailure: "startup_failure",
+  Stale: "stale",
 });
 
 export const AttentionLevel = Object.freeze({
@@ -32,7 +33,8 @@ export function needsAttention(conclusion) {
   return conclusion === Conclusion.Failure ||
     conclusion === Conclusion.TimedOut ||
     conclusion === Conclusion.ActionRequired ||
-    conclusion === Conclusion.StartupFailure;
+    conclusion === Conclusion.StartupFailure ||
+    conclusion === Conclusion.Stale;
 }
 
 function key(parts) {
