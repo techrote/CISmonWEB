@@ -192,14 +192,24 @@ export function createFunView(surface, openRun, formatDuration) {
     overlay.append(top, metrics, content, footer);
   }
   root.append(canvas, overlay);
+  const artStatus = mode === "hungry_margins"
+    ? el("div", "living-art-status", "LOADING ORIGINAL 037 ARTWORK…")
+    : null;
+  if (artStatus) root.append(artStatus);
 
   let seen = new Map();
   let events = [];
   let lastUpdate = null;
   let destroyed = false;
-  const engine = (mode === "hungry_margins" ? createHungryFrameEngine(canvas, (isPaused) => {
+  const loadingTimeout = artStatus ? window.setTimeout(() => {
+    if (!destroyed && !artStatus.hidden) {
+      artStatus.textContent = "ORIGINAL ARTWORK DID NOT INITIALISE — CHECK BROWSER CONSOLE";
+    }
+  }, 6500) : null;
+  const engine = (mode === "hungry_margins" ? createHungryFrameEngine(canvas, (isPaused, isReady) => {
     pause.textContent = isPaused ? "Resume" : "Pause";
     pause.setAttribute("aria-pressed", String(isPaused));
+    artStatus.hidden = Boolean(isReady);
   }) : createFunEngine(canvas, mode, (isPaused) => {
     pause.textContent = isPaused ? "Resume" : "Pause";
     pause.setAttribute("aria-pressed", String(isPaused));
@@ -289,6 +299,7 @@ export function createFunView(surface, openRun, formatDuration) {
     update,
     destroy: () => {
       destroyed = true;
+      if (loadingTimeout !== null) window.clearTimeout(loadingTimeout);
       engine.destroy();
     }
   };
