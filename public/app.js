@@ -243,6 +243,7 @@ function applySurfaceVisuals() {
   document.body.dataset.theme = surface.theme;
   document.body.dataset.density = surface.density;
   document.body.classList.toggle("surface-hide-chrome", surface.hideChrome);
+  document.body.classList.toggle("surface-hide-topbar", surface.hideChrome && !surface.showTelemetry);
   elements.main.classList.toggle("full-width", surface.fullWidth);
   elements.telemetry.hidden = !surface.showTelemetry;
   elements.summaryStrip.hidden = !surface.showSummary;
