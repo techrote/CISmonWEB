@@ -134,6 +134,7 @@ export function createFunView(surface, openRun, formatDuration) {
 
   let seen = new Map();
   let events = [];
+  let lastUpdate = null;
   let destroyed = false;
   const engine = createFunEngine(canvas, mode, (isPaused) => {
     pause.textContent = isPaused ? "Resume" : "Pause";
@@ -145,12 +146,14 @@ export function createFunView(surface, openRun, formatDuration) {
     seen = new Map();
     events = [];
     engine.reseed();
+    if (lastUpdate) update(lastUpdate.rows, lastUpdate.state, lastUpdate.surface);
     readout.title = "The visual specimen and observed-while-open event record were reset.";
   });
   exportBtn.addEventListener("click", () => engine.exportPng());
 
   function update(rows, state, latestSurface) {
     if (destroyed) return;
+    lastUpdate = { rows, state, surface: latestSurface };
     const counts = summarizeFunRows(rows);
     const clock = Number(state.updatedAt) ? new Date(state.updatedAt).toLocaleTimeString() : "—";
     const changed = observeTransitions(seen, rows, performance.now());
@@ -189,6 +192,7 @@ export function createFunView(surface, openRun, formatDuration) {
       list.append(el("p", "living-no-runs", "NO RUNS MATCH CURRENT SURFACE FILTERS"));
     }
 
+    for (const old of content.querySelectorAll(".living-echoes")) old.remove();
     if (mode === "afterimage" && events.length) {
       const timeline = el("aside", "living-echoes");
       timeline.append(el("h3", "", "OBSERVED STATE CHANGES"));
@@ -196,11 +200,13 @@ export function createFunView(surface, openRun, formatDuration) {
         timeline.append(el("p", "", event.repository + " / " + event.from + " → " + event.to));
       }
       content.append(timeline);
-    } else {
-      for (const old of content.querySelectorAll(".living-echoes")) old.remove();
     }
 
     engine.update(rows, latestSurface, changed.changes);
+    const staticMode = engine.reduced || latestSurface.motion === "off";
+    pause.disabled = staticMode;
+    pause.textContent = staticMode ? "Static" : engine.paused ? "Resume" : "Pause";
+    pause.setAttribute("aria-pressed", String(engine.paused));
   }
 
   return {
