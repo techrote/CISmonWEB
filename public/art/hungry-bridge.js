@@ -9,6 +9,8 @@
   let lastRealPointerAt = -Infinity;
   let scene = null;
   const seededScars = new Set();
+  let quietScars = [];
+  let brushSteps = 0;
   let consentedPaused = E.paused;
 
   // Native mouse/touch still drives the actual original handlers. We avoid
@@ -103,6 +105,11 @@
       if (seededScars.has(id)) continue;
       seededScars.add(id);
       E.infect(clamp(Number(anchor.x)), clamp(Number(anchor.y)), .12);
+      if (quietScars.length < 12) quietScars.push({
+        x: clamp(Number(anchor.x)),
+        y: clamp(Number(anchor.y)),
+        force: .08, held: false
+      });
     }
     const queue = clamp(Number(input.queuePressure));
     const fail = clamp(Number(input.failurePressure));
@@ -132,12 +139,22 @@
     const { type, payload } = event.data;
     switch (type) {
       case "scene": setScene(payload); break;
-      case "stroke": virtualBrush(payload); break;
+      case "stroke":
+        virtualBrush(payload);
+        // Paint a sparse, current-state failure sediment through the *actual*
+        // 037 input callbacks. Do not announce these as new failure events.
+        if (available() && quietScars.length && (++brushSteps % 6 === 0)) {
+          virtualBrush(quietScars.shift());
+          E.held = false;
+        }
+        break;
       case "pulse": pulse(payload); break;
       case "pause": setPaused(payload?.paused); break;
       case "reseed":
         document.getElementById("reset")?.click();
         seededScars.clear();
+        quietScars = [];
+        brushSteps = 0;
         if (scene) setScene(scene);
         break;
       case "capture": exportCanvas(); break;
