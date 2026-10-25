@@ -6,7 +6,8 @@ CISmonWEB imports the **original, user-supplied 037 / Hungry Margins** HTML artw
 
 - public/art/037-hungry-margins3.html retains the self-contained original source, with line endings normalized.
 - Original generation 037's Canvas pipeline, ancestry effects, living resonance, chromatic slug, contamination, quiet substrate, broken seals and defensive hungry margins remain intact.
-- The server inserts a small bridge script **after all original artwork scripts**, along with a rule hiding duplicate inner controls. It does not rewrite the original visual logic.
+- The server inserts a small bridge script **after all original artwork scripts**, along with a rule hiding duplicate inner controls. It does not rewrite the original visual algorithms.
+- A narrowly scoped **served-frame-only** compatibility guard ensures the original bootstrap canvas has nonzero width/height if an iframe runs its initial script before a viewport size is available. The vendored source is untouched; after layout, normal iframe resizing applies. This guard was verified with a headless Chromium reproduction of the 0×0 initialization race.
 - The source can be audited at /art/037-hungry-margins3.html (served safely as plain text). The live frame uses /art/hungry-frame.
 
 ## What CI events do visually
