@@ -79,7 +79,17 @@ export async function serveHungryFrame(res) {
   const hiddenChrome = "<style id=\"cismon-frame-only\">body>header,body>footer{display:none!important}</style>";
   const injection = hiddenChrome + "<script>\n" + bridge + "\n</script>";
   if (!original.includes("</body>")) throw new Error("original Hungry Margins artwork is incomplete");
-  const html = original.replace("</body>", injection + "</body>");
+  // Some iframe engines report a 0×0 viewport while its first synchronous
+  // script executes. Preserve every original visual hook, but guard the
+  // original bootstrap resize against a zero-sized backing canvas.
+  const originalResize = "function resize(){E.w=innerWidth;E.h=innerHeight;";
+  if (!original.includes(originalResize)) throw new Error("037 viewport bootstrap signature changed");
+  const compatible = original.replace(
+    originalResize,
+    "function resize(){E.w=Math.max(1,innerWidth||canvas.clientWidth||960);" +
+    "E.h=Math.max(1,innerHeight||canvas.clientHeight||600);"
+  );
+  const html = compatible.replace("</body>", injection + "</body>");
   res.writeHead(200, {
     "Content-Type": "text/html; charset=utf-8",
     "Cache-Control": "no-store",
