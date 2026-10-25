@@ -4,6 +4,12 @@ function id(repository, runId) {
   return repository + "#" + runId;
 }
 
+function terminalTimestampMs(snapshot, nowMs) {
+  const fromApi = Number(snapshot.updatedAtEpoch || 0) * 1000;
+  if (fromApi > 0 && fromApi <= nowMs + 60000) return fromApi;
+  return nowMs;
+}
+
 export class RunTracker {
   constructor() {
     this.runs = new Map();
@@ -12,6 +18,8 @@ export class RunTracker {
   upsert(snapshot, nowMs) {
     const key = id(snapshot.repository, snapshot.runId);
     const existing = this.runs.get(key);
+    const incomingActive = snapshot.state === RunState.Queued || snapshot.state === RunState.InProgress;
+
     if (existing) {
       const wasTerminal = isTerminal(existing.snapshot.state);
       const nowTerminal = isTerminal(snapshot.state);
@@ -21,7 +29,10 @@ export class RunTracker {
       }
       existing.snapshot = merged;
       existing.lastSeenMs = nowMs;
-      if (!wasTerminal && nowTerminal) existing.terminalSinceMs = nowMs;
+      existing.observedActive ||= incomingActive;
+      if (!wasTerminal && nowTerminal) {
+        existing.terminalSinceMs = terminalTimestampMs(snapshot, nowMs);
+      }
       return existing;
     }
 
@@ -29,9 +40,10 @@ export class RunTracker {
       snapshot: { ...snapshot, jobs: snapshot.jobs || [] },
       firstSeenMs: nowMs,
       lastSeenMs: nowMs,
-      terminalSinceMs: isTerminal(snapshot.state) ? nowMs : 0,
+      terminalSinceMs: isTerminal(snapshot.state) ? terminalTimestampMs(snapshot, nowMs) : 0,
+      observedActive: incomingActive,
       acknowledged: false,
-      manualWatch: false,
+      manualWatch: false
     };
     this.runs.set(key, tracked);
     return tracked;
@@ -59,22 +71,32 @@ export class RunTracker {
     return [...this.runs.values()];
   }
 
-  visible(nowMs, successTtlMs = 3600000) {
+  visible(nowMs, successTtlMs = 3600000, terminalTtlMs = 3600000) {
     return this.all().filter((run) => {
       const active = run.snapshot.state === RunState.Queued || run.snapshot.state === RunState.InProgress;
       const failure = needsAttention(run.snapshot.conclusion);
-      const recentSuccess = run.snapshot.conclusion === Conclusion.Success &&
-        run.terminalSinceMs !== 0 && nowMs - run.terminalSinceMs <= successTtlMs;
-      return run.manualWatch || active || (failure && !run.acknowledged) || recentSuccess;
+      const persistentObservedFailure = failure && run.observedActive && !run.acknowledged;
+      const ttl = run.snapshot.conclusion === Conclusion.Success ? successTtlMs : terminalTtlMs;
+      const recentTerminal = isTerminal(run.snapshot.state) &&
+        run.terminalSinceMs !== 0 &&
+        nowMs - run.terminalSinceMs <= ttl;
+
+      return run.manualWatch || active || persistentObservedFailure || recentTerminal;
     });
   }
 
-  prune(nowMs, successTtlMs = 3600000, terminalTtlMs = 86400000) {
+  prune(nowMs, successTtlMs = 3600000, terminalTtlMs = 3600000) {
     for (const [key, run] of this.runs.entries()) {
       if (!isTerminal(run.snapshot.state) || run.manualWatch) continue;
-      if (needsAttention(run.snapshot.conclusion) && !run.acknowledged) continue;
+
+      const persistentObservedFailure =
+        needsAttention(run.snapshot.conclusion) && run.observedActive && !run.acknowledged;
+      if (persistentObservedFailure) continue;
+
       const ttl = run.snapshot.conclusion === Conclusion.Success ? successTtlMs : terminalTtlMs;
-      if (run.terminalSinceMs && nowMs - run.terminalSinceMs > ttl) this.runs.delete(key);
+      if (run.terminalSinceMs && nowMs - run.terminalSinceMs > ttl) {
+        this.runs.delete(key);
+      }
     }
   }
 }
