@@ -20,6 +20,8 @@
     <div id="telemetry" class="telemetry" aria-label="monitor telemetry">
       <div><span class="label">STATE</span><strong id="providerState">STARTING</strong></div>
       <div><span class="label">REPOS</span><strong id="repoCount">0</strong></div>
+      <div><span class="label">SCANNED</span><strong id="scannedRepoCount">0/0</strong></div>
+      <div><span class="label">TRACKED</span><strong id="trackedCount">0</strong></div>
       <div><span class="label">VISIBLE</span><strong id="visibleCount">0</strong></div>
       <div><span class="label">RATE</span><strong id="rateRemaining">—</strong></div>
       <div><span class="label">UPDATED</span><strong id="updatedAt">—</strong></div>
@@ -44,6 +46,7 @@
 
   <main id="main">
     <section id="errorBanner" class="error-banner" hidden></section>
+    <section id="scanBanner" class="scan-banner" hidden></section>
 
     <section id="summaryStrip" class="summary-strip">
       <div>
@@ -56,8 +59,8 @@
     <section id="dashboard" class="dashboard" aria-live="polite"></section>
 
     <section id="emptyState" class="empty-state" hidden>
-      <strong>No runs match this surface.</strong>
-      <span>Adjust the surface filters or wait for matching workflow activity.</span>
+      <strong id="emptyTitle">No runs match this surface.</strong>
+      <span id="emptyDetail">Adjust the surface filters or wait for matching workflow activity.</span>
     </section>
   </main>
 
