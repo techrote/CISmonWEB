@@ -47,6 +47,7 @@ let selectedRun = null;
 let polling = false;
 let pollTimer = null;
 let editingSurfaces = [];
+let editingSurfaceId = null;
 
 function node(tag, className, text) {
   const el = document.createElement(tag);
@@ -528,8 +529,8 @@ function readSurfaceForm(existing) {
 }
 
 function commitEditorFormToDraft() {
-  const id = elements.surfaceEditorSelect.value;
-  const index = editingSurfaces.findIndex((surface) => surface.id === id);
+  if (!editingSurfaceId) return;
+  const index = editingSurfaces.findIndex((surface) => surface.id === editingSurfaceId);
   if (index < 0) return;
   editingSurfaces[index] = readSurfaceForm(editingSurfaces[index]);
 }
@@ -537,6 +538,7 @@ function commitEditorFormToDraft() {
 function selectEditorSurface(id) {
   const surface = editingSurfaces.find((candidate) => candidate.id === id) || editingSurfaces[0];
   if (!surface) return;
+  editingSurfaceId = surface.id;
   updateSurfaceEditorSelect(surface.id);
   writeSurfaceForm(surface);
 }
@@ -561,6 +563,7 @@ function uniqueSurfaceId(base) {
 
 elements.surfaceEditorSelect.addEventListener("change", () => {
   const nextId = elements.surfaceEditorSelect.value;
+  commitEditorFormToDraft();
   selectEditorSurface(nextId);
 });
 
@@ -598,11 +601,13 @@ $("#deleteSurfaceButton").addEventListener("click", () => {
   const index = editingSurfaces.findIndex((surface) => surface.id === id);
   if (index < 0) return;
   editingSurfaces.splice(index, 1);
+  editingSurfaceId = null;
   selectEditorSurface(editingSurfaces[Math.min(index, editingSurfaces.length - 1)].id);
 });
 
 $("#resetSurfacesButton").addEventListener("click", () => {
   editingSurfaces = normalizeSurfaces(structuredClone(DEFAULT_SURFACES));
+  editingSurfaceId = null;
   selectEditorSurface("focus");
   elements.surfaceStatus.textContent = "Defaults loaded into the editor. Save to persist.";
 });
@@ -664,6 +669,11 @@ $("#settingsButton").addEventListener("click", () => openSettings().catch((error
 }));
 
 $("#surfaceSettingsButton").addEventListener("click", () => openSurfaceSettings().catch((error) => {
+  elements.errorBanner.hidden = false;
+  elements.errorBanner.textContent = error.message;
+}));
+
+$("#kioskSurfaceButton").addEventListener("click", () => openSurfaceSettings().catch((error) => {
   elements.errorBanner.hidden = false;
   elements.errorBanner.textContent = error.message;
 }));
