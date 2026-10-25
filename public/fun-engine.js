@@ -386,6 +386,7 @@ export function createFunEngine(canvas, layout, onChange = noop) {
     const speed = motion === "subtle" ? .35 : motion === "intense" ? 1.5 : 1;
     time += dt * speed;
     if (layout === "hungry_margins") {
+      tickInteractions();
       updateWave(dt);
       evolveEdges(dt);
     }
@@ -534,10 +535,6 @@ export function createFunEngine(canvas, layout, onChange = noop) {
     canvas.removeEventListener("pointercancel", pointerUp);
   }
 
-  // Local wave drag is private to the canvas; it never changes workflow states.
-  // Periodic impulses while held are bounded by frame cadence.
-  const originalFrame = frame;
-  void originalFrame;
   return {
     mount, update, destroy, pause, reseed, exportPng,
     get paused() { return paused; },
