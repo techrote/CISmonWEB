@@ -1,6 +1,7 @@
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { DEFAULT_SURFACES, normalizeSurfaces } from "../shared/surfaces.js";
 
 export const DEFAULT_CONFIG = Object.freeze({
   githubToken: "",
@@ -10,6 +11,8 @@ export const DEFAULT_CONFIG = Object.freeze({
   maxRepositories: 20,
   historyDepth: 64,
   backfillRunsPerRepo: 4,
+  activeSurfaceId: "focus",
+  surfaces: DEFAULT_SURFACES
 });
 
 function normalizePatterns(value) {
@@ -22,7 +25,7 @@ export class ConfigStore {
   constructor(dataDir = process.env.CISMON_DATA_DIR || path.join(os.homedir(), ".cismonweb")) {
     this.dataDir = dataDir;
     this.configPath = path.join(dataDir, "config.json");
-    this.current = { ...DEFAULT_CONFIG };
+    this.current = { ...DEFAULT_CONFIG, surfaces: normalizeSurfaces(DEFAULT_SURFACES) };
   }
 
   async load() {
@@ -40,6 +43,11 @@ export class ConfigStore {
   }
 
   normalize(value) {
+    const surfaces = normalizeSurfaces(value.surfaces);
+    const requestedSurface = typeof value.activeSurfaceId === "string" ? value.activeSurfaceId : "";
+    const activeSurfaceId = surfaces.some((surface) => surface.id === requestedSurface)
+      ? requestedSurface
+      : surfaces[0].id;
     return {
       ...DEFAULT_CONFIG,
       ...value,
@@ -50,6 +58,8 @@ export class ConfigStore {
       maxRepositories: Math.min(100, Math.max(1, Number(value.maxRepositories) || DEFAULT_CONFIG.maxRepositories)),
       historyDepth: Math.min(256, Math.max(8, Number(value.historyDepth) || DEFAULT_CONFIG.historyDepth)),
       backfillRunsPerRepo: Math.min(20, Math.max(1, Number(value.backfillRunsPerRepo) || DEFAULT_CONFIG.backfillRunsPerRepo)),
+      surfaces,
+      activeSurfaceId
     };
   }
 

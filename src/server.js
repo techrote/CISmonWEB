@@ -8,6 +8,7 @@ import { Monitor } from "./monitor.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.resolve(__dirname, "../public");
+const sharedDir = path.resolve(__dirname, "../shared");
 const configStore = new ConfigStore();
 const history = new FileHistoryStore(configStore.dataDir);
 const monitor = new Monitor(configStore, history);
@@ -20,7 +21,7 @@ function json(res, status, body) {
   res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
     "Content-Length": Buffer.byteLength(payload),
-    "Cache-Control": "no-store",
+    "Cache-Control": "no-store"
   });
   res.end(payload);
 }
@@ -29,7 +30,7 @@ async function readJson(req) {
   let body = "";
   for await (const chunk of req) {
     body += chunk;
-    if (body.length > 65536) throw new Error("request body too large");
+    if (body.length > 262144) throw new Error("request body too large");
   }
   return body ? JSON.parse(body) : {};
 }
@@ -39,21 +40,26 @@ function securityHeaders() {
     "Content-Security-Policy": "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "DENY",
+    "X-Frame-Options": "DENY"
   };
+}
+
+async function serveFile(filePath, contentType, res) {
+  const data = await readFile(filePath);
+  res.writeHead(200, { ...securityHeaders(), "Content-Type": contentType, "Cache-Control": "no-cache" });
+  res.end(data);
 }
 
 async function serveStatic(urlPath, res) {
   const routes = {
-    "/": ["index.html", "text/html; charset=utf-8"],
-    "/app.js": ["app.js", "text/javascript; charset=utf-8"],
-    "/styles.css": ["styles.css", "text/css; charset=utf-8"],
+    "/": [path.join(publicDir, "index.html"), "text/html; charset=utf-8"],
+    "/app.js": [path.join(publicDir, "app.js"), "text/javascript; charset=utf-8"],
+    "/styles.css": [path.join(publicDir, "styles.css"), "text/css; charset=utf-8"],
+    "/surfaces.js": [path.join(sharedDir, "surfaces.js"), "text/javascript; charset=utf-8"]
   };
   const route = routes[urlPath];
   if (!route) return false;
-  const data = await readFile(path.join(publicDir, route[0]));
-  res.writeHead(200, { ...securityHeaders(), "Content-Type": route[1], "Cache-Control": "no-cache" });
-  res.end(data);
+  await serveFile(route[0], route[1], res);
   return true;
 }
 
