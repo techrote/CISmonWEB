@@ -2,6 +2,7 @@ import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { DEFAULT_SURFACES, normalizeSurfaces } from "../shared/surfaces.js";
+import { FUN_PRESET_VERSION, migrateFunPresets } from "../shared/fun-core.js";
 
 export const DEFAULT_CONFIG = Object.freeze({
   githubToken: "",
@@ -12,7 +13,8 @@ export const DEFAULT_CONFIG = Object.freeze({
   historyDepth: 64,
   backfillRunsPerRepo: 4,
   activeSurfaceId: "focus",
-  surfaces: DEFAULT_SURFACES
+  surfaces: DEFAULT_SURFACES,
+  surfacePresetVersion: FUN_PRESET_VERSION
 });
 
 function normalizePatterns(value) {
@@ -32,7 +34,11 @@ export class ConfigStore {
     await mkdir(this.dataDir, { recursive: true, mode: 0o700 });
     try {
       const parsed = JSON.parse(await readFile(this.configPath, "utf8"));
-      this.current = this.normalize({ ...DEFAULT_CONFIG, ...parsed });
+      this.current = this.normalize({
+        ...DEFAULT_CONFIG, ...parsed,
+        surfacePresetVersion: FUN_PRESET_VERSION,
+        surfaces: migrateFunPresets(parsed.surfaces, DEFAULT_SURFACES, parsed.surfacePresetVersion)
+      });
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
     }
