@@ -140,11 +140,10 @@ export function createFunView(surface, openRun, formatDuration) {
   const canvas = mode === "hungry_margins"
     ? el("iframe", "living-canvas living-original-art")
     : el("canvas", "living-canvas");
-  canvas.setAttribute("role", "img");
-  canvas.setAttribute("aria-label",
-    mode === "hungry_margins"
-      ? "A living olive-black border surrounding a live CI activity field. Pointer movement disturbs the surface."
-      : "Decorative animated visualization of actual GitHub Actions activity.");
+  if (mode !== "hungry_margins") {
+    canvas.setAttribute("role", "img");
+    canvas.setAttribute("aria-label", "Decorative animated visualization of actual GitHub Actions activity.");
+  }
   const overlay = el("div", "living-overlay");
   const top = el("header", "living-top");
   const heading = el("div", "living-heading");
