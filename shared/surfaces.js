@@ -232,7 +232,7 @@ export function normalizeSurface(input = {}, index = 0) {
     density: choice(input.density, DENSITIES, fallback.density),
     theme: choice(input.theme, THEMES, fallback.theme),
     refreshMs: integer(input.refreshMs, fallback.refreshMs, 1000, 60000),
-    maxItems: integer(input.maxItems, fallback.maxItems, 1, 64),
+    maxItems: integer(input.maxItems, fallback.maxItems, 1, 512),
     sort: choice(input.sort, SORTS, fallback.sort),
     groupBy: choice(input.groupBy, GROUPS, fallback.groupBy),
     minAttention,
