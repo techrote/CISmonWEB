@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="dark">
+  <meta name="color-scheme" content="dark light">
   <title>CISmonWEB</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
-<body>
+<body data-theme="dark" data-density="comfortable">
   <header class="topbar">
     <div class="brand">
       <div class="brand-mark" aria-hidden="true">CI</div>
@@ -16,31 +16,48 @@
         <p>local CI attention monitor</p>
       </div>
     </div>
-    <div class="telemetry" aria-label="monitor telemetry">
+
+    <div id="telemetry" class="telemetry" aria-label="monitor telemetry">
       <div><span class="label">STATE</span><strong id="providerState">STARTING</strong></div>
       <div><span class="label">REPOS</span><strong id="repoCount">0</strong></div>
+      <div><span class="label">VISIBLE</span><strong id="visibleCount">0</strong></div>
       <div><span class="label">RATE</span><strong id="rateRemaining">—</strong></div>
       <div><span class="label">UPDATED</span><strong id="updatedAt">—</strong></div>
     </div>
+
     <div class="toolbar">
       <button id="refreshButton" class="button secondary" type="button">Refresh</button>
+      <button id="fullscreenButton" class="button secondary" type="button">Fullscreen</button>
+      <button id="surfaceSettingsButton" class="button secondary" type="button">Surface</button>
       <button id="settingsButton" class="button" type="button">Configure</button>
     </div>
   </header>
 
-  <main>
+  <nav id="surfaceBar" class="surfacebar" aria-label="display surfaces">
+    <div id="surfaceTabs" class="surface-tabs"></div>
+    <div class="surface-meta">
+      <span id="surfaceMode"></span>
+    </div>
+  </nav>
+
+  <button id="kioskSurfaceButton" class="kiosk-surface-button" type="button" aria-label="Open surface settings">Surface</button>
+
+  <main id="main">
     <section id="errorBanner" class="error-banner" hidden></section>
-    <section class="summary-strip">
+
+    <section id="summaryStrip" class="summary-strip">
       <div>
-        <span class="eyebrow">ATTENTION QUEUE</span>
-        <h2>What needs watching now?</h2>
+        <span class="eyebrow">DISPLAY SURFACE</span>
+        <h2 id="surfaceTitle">Focus</h2>
       </div>
-      <p>Ranked by failure state, runtime anomaly, active work, queue state, and age.</p>
+      <p id="surfaceSummary">Attention-ranked CI activity.</p>
     </section>
+
     <section id="dashboard" class="dashboard" aria-live="polite"></section>
+
     <section id="emptyState" class="empty-state" hidden>
-      <strong>No visible runs.</strong>
-      <span>Configure GitHub access, or wait for active/recent workflow activity.</span>
+      <strong>No runs match this surface.</strong>
+      <span>Adjust the surface filters or wait for matching workflow activity.</span>
     </section>
   </main>
 
@@ -63,46 +80,68 @@
     <form id="settingsForm" class="dialog-shell">
       <header class="dialog-header">
         <div>
-          <span class="eyebrow">LOCAL CONFIGURATION</span>
-          <h2>CISmonWEB setup</h2>
-          <p>The token stays on the local Node process and is never returned to the browser.</p>
+          <span class="eyebrow">MONITOR CONFIGURATION</span>
+          <h2>GitHub + history setup</h2>
+          <p>Transport and analysis acquisition settings. Display surfaces are configured separately.</p>
         </div>
         <button class="icon-button" type="button" data-close="settingsDialog" aria-label="Close settings">×</button>
       </header>
-      <div class="form-grid">
-        <label class="field full">
-          <span>GitHub fine-grained token</span>
-          <input id="githubToken" name="githubToken" type="password" autocomplete="off" placeholder="Leave blank to keep current token">
-          <small id="tokenState">No token stored.</small>
-        </label>
-        <label class="field">
-          <span>Owner filter</span>
-          <input id="githubOwner" name="githubOwner" type="text" placeholder="techrote">
-          <small>Optional. Only repositories under this owner are considered.</small>
-        </label>
-        <label class="field">
-          <span>Maximum repositories</span>
-          <input id="maxRepositories" name="maxRepositories" type="number" min="1" max="100">
-        </label>
-        <label class="field">
-          <span>Include globs</span>
-          <textarea id="includePatterns" name="includePatterns" rows="5" placeholder="techrote/*"></textarea>
-          <small>One pattern per line. Empty means include all discovered repositories.</small>
-        </label>
-        <label class="field">
-          <span>Exclude globs</span>
-          <textarea id="excludePatterns" name="excludePatterns" rows="5" placeholder="*/archived-*"></textarea>
-        </label>
-        <label class="field">
-          <span>History depth per timing key</span>
-          <input id="historyDepth" name="historyDepth" type="number" min="8" max="256">
-          <small>Successful samples feed median/MAD/EWMA baselines.</small>
-        </label>
-        <label class="check-field">
-          <input id="clearGithubToken" name="clearGithubToken" type="checkbox">
-          <span>Remove the stored GitHub token</span>
-        </label>
+
+      <div class="form-section">
+        <h3>GitHub access</h3>
+        <div class="form-grid">
+          <label class="field full">
+            <span>GitHub fine-grained token</span>
+            <input id="githubToken" name="githubToken" type="password" autocomplete="off" placeholder="Leave blank to keep current token">
+            <small id="tokenState">No token stored.</small>
+          </label>
+
+          <label class="field">
+            <span>Owner filter</span>
+            <input id="githubOwner" name="githubOwner" type="text" placeholder="techrote">
+            <small>Optional. Only repositories under this owner are considered.</small>
+          </label>
+
+          <label class="field">
+            <span>Maximum repositories</span>
+            <input id="maxRepositories" name="maxRepositories" type="number" min="1" max="100">
+          </label>
+
+          <label class="field">
+            <span>Include repository globs</span>
+            <textarea id="includePatterns" name="includePatterns" rows="5" placeholder="techrote/*"></textarea>
+            <small>One pattern per line. Empty means include all discovered repositories.</small>
+          </label>
+
+          <label class="field">
+            <span>Exclude repository globs</span>
+            <textarea id="excludePatterns" name="excludePatterns" rows="5" placeholder="*/archived-*"></textarea>
+          </label>
+        </div>
       </div>
+
+      <div class="form-section">
+        <h3>History acquisition</h3>
+        <div class="form-grid">
+          <label class="field">
+            <span>History samples per timing key</span>
+            <input id="historyDepth" name="historyDepth" type="number" min="8" max="256">
+            <small>Successful samples feed median/MAD/EWMA baselines.</small>
+          </label>
+
+          <label class="field">
+            <span>Backfill runs per repository</span>
+            <input id="backfillRunsPerRepo" name="backfillRunsPerRepo" type="number" min="1" max="20">
+            <small>Maximum recent completed runs queued for timing-history acquisition per repository poll.</small>
+          </label>
+
+          <label class="check-field">
+            <input id="clearGithubToken" name="clearGithubToken" type="checkbox">
+            <span>Remove the stored GitHub token</span>
+          </label>
+        </div>
+      </div>
+
       <footer class="dialog-footer">
         <span id="settingsStatus" class="form-status"></span>
         <button class="button secondary" type="button" data-close="settingsDialog">Cancel</button>
@@ -110,6 +149,186 @@
       </footer>
     </form>
   </dialog>
+
+  <dialog id="surfaceDialog" class="dialog surface-dialog">
+    <form id="surfaceForm" class="dialog-shell">
+      <header class="dialog-header">
+        <div>
+          <span class="eyebrow">DISPLAY SURFACE EDITOR</span>
+          <h2>Surface profiles</h2>
+          <p>Each surface has independent layout, density, filters, fields, grouping and refresh behavior.</p>
+        </div>
+        <button class="icon-button" type="button" data-close="surfaceDialog" aria-label="Close surface settings">×</button>
+      </header>
+
+      <div class="surface-editor-toolbar">
+        <label class="compact-field">
+          <span>Editing</span>
+          <select id="surfaceEditorSelect"></select>
+        </label>
+        <button id="newSurfaceButton" class="button secondary" type="button">New</button>
+        <button id="duplicateSurfaceButton" class="button secondary" type="button">Duplicate</button>
+        <button id="deleteSurfaceButton" class="button secondary danger" type="button">Delete</button>
+        <button id="resetSurfacesButton" class="button secondary" type="button">Reset defaults</button>
+      </div>
+
+      <div class="surface-editor">
+        <section class="form-section">
+          <h3>Identity + layout</h3>
+          <div class="form-grid three">
+            <label class="field">
+              <span>Name</span>
+              <input id="surfaceName" maxlength="48">
+            </label>
+
+            <label class="field">
+              <span>Layout</span>
+              <select id="surfaceLayout">
+                <option value="rows">Rows</option>
+                <option value="cards">Cards</option>
+                <option value="table">Dense table</option>
+                <option value="lanes">Lanes</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Density</span>
+              <select id="surfaceDensity">
+                <option value="comfortable">Comfortable</option>
+                <option value="compact">Compact</option>
+                <option value="ultra">Ultra dense</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Theme</span>
+              <select id="surfaceTheme">
+                <option value="dark">Dark</option>
+                <option value="black">Black</option>
+                <option value="light">Light</option>
+                <option value="amber">Amber terminal</option>
+                <option value="green">Green terminal</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Refresh cadence</span>
+              <select id="surfaceRefreshMs">
+                <option value="1000">1 second</option>
+                <option value="1500">1.5 seconds</option>
+                <option value="2000">2 seconds</option>
+                <option value="5000">5 seconds</option>
+                <option value="10000">10 seconds</option>
+                <option value="30000">30 seconds</option>
+                <option value="60000">60 seconds</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Maximum items</span>
+              <input id="surfaceMaxItems" type="number" min="1" max="64">
+            </label>
+
+            <label class="field">
+              <span>Sort</span>
+              <select id="surfaceSort">
+                <option value="priority">CISmon attention priority</option>
+                <option value="elapsed">Longest elapsed</option>
+                <option value="repository">Repository / workflow</option>
+                <option value="remaining">Estimated finish soonest</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Group</span>
+              <select id="surfaceGroupBy">
+                <option value="none">None</option>
+                <option value="repository">Repository</option>
+                <option value="state">State / conclusion</option>
+                <option value="attention">Attention</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Minimum attention</span>
+              <select id="surfaceMinAttention">
+                <option value="normal">Normal+</option>
+                <option value="interesting">Interesting+</option>
+                <option value="suspicious">Suspicious+</option>
+                <option value="action_required">Action required only</option>
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section class="form-section">
+          <h3>Run filters</h3>
+          <div class="form-grid">
+            <label class="field">
+              <span>Repository globs</span>
+              <textarea id="surfaceRepositoryPatterns" rows="4" placeholder="techrote/*"></textarea>
+              <small>Empty means any repository already admitted by the monitor.</small>
+            </label>
+
+            <label class="field">
+              <span>Workflow globs</span>
+              <textarea id="surfaceWorkflowPatterns" rows="4" placeholder="CI&#10;*qualification*"></textarea>
+            </label>
+
+            <label class="field">
+              <span>Event globs</span>
+              <textarea id="surfaceEventPatterns" rows="4" placeholder="pull_request&#10;workflow_dispatch"></textarea>
+            </label>
+
+            <div class="check-grid">
+              <label class="check-field"><input id="surfaceShowInProgress" type="checkbox"><span>In progress</span></label>
+              <label class="check-field"><input id="surfaceShowQueued" type="checkbox"><span>Queued</span></label>
+              <label class="check-field"><input id="surfaceShowSuccess" type="checkbox"><span>Recent success</span></label>
+              <label class="check-field"><input id="surfaceShowFailures" type="checkbox"><span>Failures</span></label>
+              <label class="check-field"><input id="surfaceShowOtherCompleted" type="checkbox"><span>Other terminal</span></label>
+              <label class="check-field"><input id="surfaceWatchedOnly" type="checkbox"><span>Manual watches only</span></label>
+              <label class="check-field"><input id="surfaceStallsOnly" type="checkbox"><span>Possible stalls only</span></label>
+            </div>
+          </div>
+        </section>
+
+        <section class="form-section">
+          <h3>Visible fields</h3>
+          <div class="check-grid fields">
+            <label class="check-field"><input id="field-stage" data-surface-field="stage" type="checkbox"><span>Current stage</span></label>
+            <label class="check-field"><input id="field-state" data-surface-field="state" type="checkbox"><span>State</span></label>
+            <label class="check-field"><input id="field-elapsed" data-surface-field="elapsed" type="checkbox"><span>Elapsed</span></label>
+            <label class="check-field"><input id="field-baseline" data-surface-field="baseline" type="checkbox"><span>Baseline median</span></label>
+            <label class="check-field"><input id="field-ratio" data-surface-field="ratio" type="checkbox"><span>Baseline ratio</span></label>
+            <label class="check-field"><input id="field-remaining" data-surface-field="remaining" type="checkbox"><span>Estimated remaining</span></label>
+            <label class="check-field"><input id="field-branch" data-surface-field="branch" type="checkbox"><span>Branch</span></label>
+            <label class="check-field"><input id="field-confidence" data-surface-field="confidence" type="checkbox"><span>Confidence</span></label>
+          </div>
+        </section>
+
+        <section class="form-section">
+          <h3>Surface chrome</h3>
+          <div class="check-grid">
+            <label class="check-field"><input id="surfaceShowTelemetry" type="checkbox"><span>Top telemetry</span></label>
+            <label class="check-field"><input id="surfaceShowSummary" type="checkbox"><span>Surface heading</span></label>
+            <label class="check-field"><input id="surfaceShowError" type="checkbox"><span>Error banner</span></label>
+            <label class="check-field"><input id="surfaceShowAttentionBadge" type="checkbox"><span>Attention badges</span></label>
+            <label class="check-field"><input id="surfaceShowWatchFlags" type="checkbox"><span>Watch flags</span></label>
+            <label class="check-field"><input id="surfaceShowStallFlag" type="checkbox"><span>Stall flags</span></label>
+            <label class="check-field"><input id="surfaceFullWidth" type="checkbox"><span>Full-width canvas</span></label>
+            <label class="check-field"><input id="surfaceHideChrome" type="checkbox"><span>Kiosk/minimal chrome</span></label>
+          </div>
+        </section>
+      </div>
+
+      <footer class="dialog-footer">
+        <span id="surfaceStatus" class="form-status"></span>
+        <button class="button secondary" type="button" data-close="surfaceDialog">Cancel</button>
+        <button class="button" type="submit">Save surfaces</button>
+      </footer>
+    </form>
+  </dialog>
+
   <script type="module" src="/app.js"></script>
 </body>
 </html>

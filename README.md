@@ -31,6 +31,33 @@ The anomaly thresholds intentionally match the current CISmon portable core:
     >= 3.00x median or robust-z >= 6.0  -> SUSPICIOUS + possible stall while active
     failed/timed-out/action-required     -> ACTION REQUIRED
 
+## Display surfaces
+
+CISmonWEB is not limited to one dashboard layout. Display surfaces are persisted profiles that can be switched from the surface bar without restarting repository discovery or resetting monitoring state.
+
+Built-in profiles:
+
+| Surface | Purpose |
+| --- | --- |
+| Focus | balanced attention-ranked desk view |
+| Dense | maximum-information table view |
+| Alerts | interesting/suspicious/action-required work only |
+| Wallboard | kiosk-style card display for a larger screen |
+| Repository lanes | per-repository grouped workflow lanes |
+| Stalls | possible-stall-focused diagnostic surface |
+
+Each surface can independently configure layout, density, theme, refresh cadence, maximum items, sorting, grouping, minimum attention level, repository/workflow/event globs, run-state visibility, watched-only/stalls-only filters, visible fields, telemetry, error/summary chrome, full-width mode and kiosk/minimal chrome.
+
+Layouts currently available are rows, cards, dense table and lanes. Themes include dark, black, light, amber-terminal and green-terminal.
+
+A surface can be addressed directly with a URL such as:
+
+    http://127.0.0.1:8787/?surface=wallboard
+
+Use the **Surface** button to edit, create, duplicate, delete or reset profiles. Fullscreen is available from the top toolbar.
+
+See docs/DISPLAY_SURFACES.md for the complete model.
+
 ## Web-specific architecture
 
 CISmonWEB moves GitHub access out of the display client:
