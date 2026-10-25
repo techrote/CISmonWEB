@@ -9,6 +9,7 @@ import { Monitor } from "./monitor.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.resolve(__dirname, "../public");
 const sharedDir = path.resolve(__dirname, "../shared");
+const artDir = path.join(publicDir, "art");
 const configStore = new ConfigStore();
 const history = new FileHistoryStore(configStore.dataDir);
 const monitor = new Monitor(configStore, history);
@@ -37,7 +38,7 @@ async function readJson(req) {
 
 function securityHeaders() {
   return {
-    "Content-Security-Policy": "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+    "Content-Security-Policy": "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY"
@@ -66,9 +67,41 @@ async function serveStatic(urlPath, res) {
   return true;
 }
 
+// Original artwork is kept independently, with no API access. Only this
+// sandboxed frame receives the bridge. Never relax the parent page CSP.
+export async function serveHungryFrame(res) {
+  const [original, bridge] = await Promise.all([
+    readFile(path.join(artDir, "037-hungry-margins3.html"), "utf8"),
+    readFile(path.join(artDir, "hungry-bridge.js"), "utf8")
+  ]);
+  const hiddenChrome = "<style id=\"cismon-frame-only\">body>header,body>footer{display:none!important}</style>";
+  const injection = hiddenChrome + "<script>\n" + bridge + "\n</script>";
+  if (!original.includes("</body>")) throw new Error("original Hungry Margins artwork is incomplete");
+  const html = original.replace("</body>", injection + "</body>");
+  res.writeHead(200, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-store",
+    // The frame is both CSP-restricted and iframe-sandboxed (opaque origin).
+    // Original user-supplied source uses many inline scripts and styles.
+    "Content-Security-Policy":
+      "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; " +
+      "img-src data: blob:; connect-src 'none'; font-src 'none'; object-src 'none'; " +
+      "form-action 'none'; base-uri 'none'; frame-ancestors 'self'",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "SAMEORIGIN",
+    "Referrer-Policy": "no-referrer"
+  });
+  res.end(html);
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, "http://" + (req.headers.host || "localhost"));
+
+    if (req.method === "GET" && url.pathname === "/art/hungry-frame") return serveHungryFrame(res);
+    if (req.method === "GET" && url.pathname === "/art/037-hungry-margins3.html") {
+      return serveFile(path.join(artDir, "037-hungry-margins3.html"), "text/plain; charset=utf-8", res);
+    }
 
     if (req.method === "GET" && url.pathname === "/api/state") return json(res, 200, monitor.state());
     if (req.method === "GET" && url.pathname === "/api/config") return json(res, 200, configStore.publicConfig());
