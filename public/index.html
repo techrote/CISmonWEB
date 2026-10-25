@@ -192,6 +192,10 @@
                 <option value="cards">Cards</option>
                 <option value="table">Dense table</option>
                 <option value="lanes">Lanes</option>
+                <option value="signal">Signal Retention</option>
+                <option value="afterimage">Afterimage Debt</option>
+                <option value="lanes_plus">Repository Lanes+</option>
+                <option value="hungry_margins">Hungry Margins</option>
               </select>
             </label>
 
@@ -263,6 +267,31 @@
               </select>
             </label>
           </div>
+        </section>
+
+        <section class="form-section">
+          <h3>Experimental surface dynamics</h3>
+          <div class="form-grid three">
+            <label class="field">
+              <span>Animation</span>
+              <select id="surfaceMotion">
+                <option value="off">Off</option>
+                <option value="subtle">Subtle</option>
+                <option value="normal">Normal</option>
+                <option value="intense">Intense</option>
+              </select>
+              <small>Reduced-motion system preference always wins.</small>
+            </label>
+            <label class="field">
+              <span>Pointer reactivity (0–100)</span>
+              <input id="surfaceReactivity" type="number" min="0" max="100" step="5">
+            </label>
+            <label class="check-field">
+              <input id="surfaceShowFunControls" type="checkbox">
+              <span>Show artwork controls (pause, reseed, collect)</span>
+            </label>
+          </div>
+          <p class="surface-help">The visual field reflects current CI state; illustrative metrics are explicitly labelled. Animation never changes GitHub polling cadence or stored run data.</p>
         </section>
 
         <section class="form-section">
