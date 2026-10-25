@@ -118,6 +118,22 @@ config.json is written with user-only file permissions where the host filesystem
 
 A timing baseline is keyed by repository, workflow ID, event, and optional job/step names. Only successful observations contribute to expected-duration baselines, matching the firmware project.
 
+## Repository discovery at scale
+
+CISmonWEB monitors repository summaries independently from browser refreshes. With large repository sets, discovery uses a bounded fast sweep on startup and when **Rescan** is pressed.
+
+The scheduler is fair rather than array-order based:
+
+- never-scanned/most-overdue repositories are serviced first;
+- simultaneously due active-run detail requests are ordered by due time;
+- active-run detail can only consume a bounded burst before due repository discovery is serviced;
+- startup/manual sweeps scan multiple repositories per batch;
+- each repository summary request reads up to 100 recent workflow runs.
+
+The top telemetry exposes **SCANNED** and **TRACKED** counts. While a sweep is incomplete, CISmonWEB shows a sweep banner because queued/running work can still be missing until its repository has been checked.
+
+This is distinct from the browser surface refresh cadence: a 1-second surface does not cause GitHub to be polled every second.
+
 ## Polling behavior
 
 The default policy mirrors CISmon:
