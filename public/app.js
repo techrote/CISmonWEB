@@ -13,13 +13,18 @@ const $$ = (selector) => [...document.querySelectorAll(selector)];
 const elements = {
   providerState: $("#providerState"),
   repoCount: $("#repoCount"),
+  scannedRepoCount: $("#scannedRepoCount"),
+  trackedCount: $("#trackedCount"),
   visibleCount: $("#visibleCount"),
   rateRemaining: $("#rateRemaining"),
   updatedAt: $("#updatedAt"),
   telemetry: $("#telemetry"),
   errorBanner: $("#errorBanner"),
+  scanBanner: $("#scanBanner"),
   dashboard: $("#dashboard"),
   emptyState: $("#emptyState"),
+  emptyTitle: $("#emptyTitle"),
+  emptyDetail: $("#emptyDetail"),
   summaryStrip: $("#summaryStrip"),
   surfaceTitle: $("#surfaceTitle"),
   surfaceSummary: $("#surfaceSummary"),
@@ -221,6 +226,27 @@ function renderDashboard(state) {
   elements.dashboard.className = "dashboard layout-" + surface.layout + " density-" + surface.density;
   elements.emptyState.hidden = rows.length !== 0;
 
+  if (rows.length === 0) {
+    if (state.scannedRepositoryCount < state.repositoryCount) {
+      elements.emptyTitle.textContent = "Scanning repositories…";
+      elements.emptyDetail.textContent =
+        state.scannedRepositoryCount + " of " + state.repositoryCount +
+        " checked; queued/running actions can be missing until their repository has been scanned.";
+    } else if (state.dashboardCandidateCount > 0) {
+      elements.emptyTitle.textContent = "No runs match this surface.";
+      elements.emptyDetail.textContent =
+        state.dashboardCandidateCount + " CISmon-visible runs are tracked but hidden by this surface's filters.";
+    } else if (state.trackedRunCount > 0) {
+      elements.emptyTitle.textContent = "No currently visible runs.";
+      elements.emptyDetail.textContent =
+        state.trackedRunCount + " runs remain in working memory, but none currently meet CISmon visibility rules.";
+    } else {
+      elements.emptyTitle.textContent = "No workflow activity discovered.";
+      elements.emptyDetail.textContent =
+        "All " + state.repositoryCount + " repositories have been scanned; use Rescan if GitHub shows newer activity.";
+    }
+  }
+
   if (surface.layout === "table") {
     elements.dashboard.append(renderTable(rows, surface));
   } else {
@@ -294,12 +320,25 @@ async function pollState() {
     const state = await api("/api/state");
     elements.providerState.textContent = state.providerReady ? "ONLINE" : "WAITING";
     elements.repoCount.textContent = String(state.repositoryCount);
+    elements.scannedRepoCount.textContent =
+      String(state.scannedRepositoryCount) + "/" + String(state.repositoryCount);
+    elements.trackedCount.textContent = String(state.trackedRunCount);
     elements.rateRemaining.textContent = state.rateRemaining >= 0 ? String(state.rateRemaining) : "—";
     elements.updatedAt.textContent = new Date(state.updatedAt).toLocaleTimeString();
 
     const surface = activeSurface();
     elements.errorBanner.hidden = !surface.showError || !state.lastError;
     elements.errorBanner.textContent = state.lastError || "";
+
+    const scanning = state.scannedRepositoryCount < state.repositoryCount || state.pendingSweepCount > 0;
+    elements.scanBanner.hidden = !scanning;
+    elements.scanBanner.textContent = scanning
+      ? "Repository sweep " + state.scannedRepositoryCount + "/" + state.repositoryCount +
+        " checked · " + state.pendingSweepCount + " pending" +
+        (state.sweepReason ? " · " + state.sweepReason : "") +
+        ". Activity is incomplete until this sweep finishes."
+      : "";
+
     renderDashboard(state);
 
     if (selectedRun && elements.detailDialog.open) {
@@ -680,8 +719,16 @@ $("#kioskSurfaceButton").addEventListener("click", () => openSurfaceSettings().c
 }));
 
 $("#refreshButton").addEventListener("click", async () => {
-  await api("/api/refresh", { method: "POST", body: "{}" });
-  await pollState();
+  const button = $("#refreshButton");
+  button.disabled = true;
+  button.textContent = "Scanning…";
+  try {
+    await api("/api/refresh", { method: "POST", body: "{}" });
+    await pollState();
+  } finally {
+    button.disabled = false;
+    button.textContent = "Rescan";
+  }
 });
 
 $("#fullscreenButton").addEventListener("click", async () => {
