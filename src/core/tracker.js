@@ -79,7 +79,8 @@ export class RunTracker {
       const ttl = run.snapshot.conclusion === Conclusion.Success ? successTtlMs : terminalTtlMs;
       const recentTerminal = isTerminal(run.snapshot.state) &&
         run.terminalSinceMs !== 0 &&
-        nowMs - run.terminalSinceMs <= ttl;
+        nowMs - run.terminalSinceMs <= ttl &&
+        !(failure && run.acknowledged);
 
       return run.manualWatch || active || persistentObservedFailure || recentTerminal;
     });
