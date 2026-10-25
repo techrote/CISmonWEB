@@ -16,7 +16,7 @@ const rows = [
 ];
 
 test("default surfaces include distinct desk, dense, alert and wallboard profiles", () => {
-  assert.deepEqual(DEFAULT_SURFACES.map((surface) => surface.id), ["focus", "dense", "alerts", "wallboard"]);
+  assert.deepEqual(DEFAULT_SURFACES.map((surface) => surface.id), ["focus", "dense", "alerts", "wallboard", "repo-lanes", "stalls"]);
   assert.equal(DEFAULT_SURFACES[1].layout, "table");
   assert.equal(DEFAULT_SURFACES[3].hideChrome, true);
 });
