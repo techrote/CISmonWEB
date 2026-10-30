@@ -31,16 +31,28 @@ export class GitHubClient {
     if (token) headers.Authorization = "Bearer " + token;
     if (etag) headers["If-None-Match"] = etag;
 
+    const controller = new AbortController();
+    let deadlineId;
+    // A real ref'ed deadline covers both fetch and response.text(). A signal
+    // alone may be unreferenced and cannot guarantee an uncooperative request
+    // or test transport ever releases the scheduler.
+    const deadline = new Promise((_, reject) => {
+      deadlineId = setTimeout(() => {
+        controller.abort();
+        reject(Object.assign(new Error("request timeout"), { name: "TimeoutError" }));
+      }, this.timeoutMs);
+    });
     try {
-      // A stalled request must never monopolise Monitor.tick()'s single busy
-      // lock, or block Promise.allSettled() across a complete rescan batch.
-      const response = await this.fetchImpl("https://api.github.com" + apiPath, {
-        headers,
-        signal: AbortSignal.timeout(this.timeoutMs)
-      });
+      const request = async () => {
+        const response = await this.fetchImpl("https://api.github.com" + apiPath, {
+          headers, signal: controller.signal
+        });
+        return response;
+      };
+      const response = await Promise.race([request(), deadline]);
       let json = null;
       if (response.status !== 304) {
-        const text = await response.text();
+        const text = await Promise.race([response.text(), deadline]);
         if (text) {
           try { json = JSON.parse(text); } catch { json = null; }
         }
@@ -81,6 +93,8 @@ export class GitHubClient {
         transient: true,
         error: timeout ? "request timeout" : "network request failed"
       };
+    } finally {
+      clearTimeout(deadlineId);
     }
   }
 }
