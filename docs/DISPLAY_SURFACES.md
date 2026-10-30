@@ -10,6 +10,10 @@ Switching surfaces is therefore cheap and does not disturb monitoring.
 
 General-purpose desk view. Rows are ordered by CISmon attention priority and retain the broadest field set.
 
+### Focus Dual
+
+Two Focus grids in a single surface. Each pane independently controls repo/workflow/event filters, attention and state visibility, max rows, density, wrapping, field set/order, column widths and sort field/direction. Both share one local monitor response and do not increase GitHub API polling. See [FOCUS_GRID.md](FOCUS_GRID.md).
+
 ### Dense
 
 Ultra-dense table intended for many simultaneous workflows or a large desktop monitor.
