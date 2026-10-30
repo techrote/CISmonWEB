@@ -7,7 +7,7 @@ import { RunTracker } from "./core/tracker.js";
 import { GitHubClient, parseJob, parseRun } from "./github.js";
 import {
   dueActiveRun,
-  dueRepository,
+  duePriorityRepository,
   shouldServiceActive,
   takeSweepBatch
 } from "./scheduler.js";
@@ -15,8 +15,11 @@ import { shouldTrackSummaryRun } from "./summary-policy.js";
 
 const REQUEST_SPACING_MS = 1000;
 const BACKFILL_SPACING_MS = 1200;
-const FAST_SWEEP_BATCH_SIZE = 6;
-const ACTIVE_DETAIL_BURST_LIMIT = 3;
+const FAST_SWEEP_BATCH_SIZE = 4;
+const ACTIVE_DETAIL_BURST_LIMIT = 1;
+const MAX_LIVE_REPO_BURST = 2;
+const ERROR_VISIBLE_MS = 90000;
+const LIVE_FRESHNESS_WARNING_MS = 90000;
 const DASHBOARD_CANDIDATE_LIMIT = 4096;
 const TERMINAL_IMPORT_LOOKBACK_MS = 3600000;
 
@@ -36,14 +39,21 @@ export class Monitor {
     this.backfill = [];
     this.queuedBackfill = new Set();
     this.activeDetailNextMs = new Map();
+    this.activeDetailErrors = new Map();
     this.fastSweepQueue = [];
     this.fastSweepReason = "";
     this.activeDetailStreak = 0;
+    this.liveRepoStreak = 0;
     this.lastSchedulerAction = "idle";
     this.nextRequestAllowedMs = 0;
     this.rateLimitedUntilMs = 0;
     this.rateRemaining = -1;
     this.lastError = "";
+    this.lastErrorAtMs = 0;
+    this.lastErrorScope = "";
+    this.recentRequestErrors = 0;
+    this.lastRateLimitReason = "";
+    this.lastSuccessfulSummaryAtMs = 0;
     this.providerReady = false;
     this.busy = false;
     this.nextDiscoveryMs = 0;
@@ -73,14 +83,38 @@ export class Monitor {
     return !this.config.excludePatterns.some((pattern) => globMatch(pattern, fullName));
   }
 
-  updateRate(response, nowMs) {
+  reportFailure(scope, response, nowMs = Date.now()) {
+    const status = response?.status || 0;
+    const detail = response?.error || (status ? "HTTP " + status : "network request failed");
+    this.lastError = scope + " " + detail;
+    this.lastErrorAtMs = nowMs;
+    this.lastErrorScope = scope;
+    this.recentRequestErrors += 1;
+  }
+
+  clearFailure(scope) {
+    // A successful unrelated request must not mask a failing endpoint. But a
+    // recovered endpoint should clear its own warning immediately.
+    if (this.lastErrorScope === scope) {
+      this.lastError = "";
+      this.lastErrorAtMs = 0;
+      this.lastErrorScope = "";
+    }
+  }
+
+  updateRate(response, nowMs = Date.now()) {
     if (response.rateRemaining >= 0) this.rateRemaining = response.rateRemaining;
-    if ((response.status === 403 || response.status === 429 || response.rateRemaining === 0) &&
-        response.rateResetEpoch > 0) {
+    const limited = response.rateLimited === true ||
+      (response.rateLimited === undefined &&
+        (response.status === 429 || response.rateRemaining === 0));
+    if (limited) {
       const nowEpoch = Math.floor(Date.now() / 1000);
-      this.rateLimitedUntilMs = response.rateResetEpoch > nowEpoch
-        ? nowMs + (response.rateResetEpoch - nowEpoch + 2) * 1000
-        : nowMs + 60000;
+      const resetMs = response.rateResetEpoch > nowEpoch
+        ? (response.rateResetEpoch - nowEpoch + 2) * 1000 : 0;
+      const waitMs = Math.max(response.retryAfterMs || 0, resetMs, 60000);
+      this.rateLimitedUntilMs = Math.max(this.rateLimitedUntilMs, nowMs + waitMs);
+      this.lastRateLimitReason = response.status === 429 ? "secondary API limit" :
+        "GitHub rate limit";
     }
   }
 
@@ -98,7 +132,7 @@ export class Monitor {
       this.providerReady = false;
       this.repositories = [];
       this.fastSweepQueue = [];
-      this.lastError = "GitHub token not configured";
+      this.reportFailure("GitHub", { error: "token not configured" }, nowMs);
       return false;
     }
 
@@ -106,7 +140,7 @@ export class Monitor {
     this.updateRate(response, nowMs);
     if (!response.ok || !Array.isArray(response.json)) {
       this.providerReady = false;
-      this.lastError = "repository discovery HTTP " + response.status;
+      this.reportFailure("repository discovery", response, Date.now());
       return false;
     }
 
@@ -121,6 +155,9 @@ export class Monitor {
         nextPollMs: 0,
         lastPollMs: 0,
         pollCount: 0,
+        successfulPollCount: 0,
+        lastSuccessAtMs: 0,
+        lastResponseStatus: 0,
         lastActivityMs: 0,
         latestUpdatedEpoch: 0,
         hadActive: false,
@@ -128,7 +165,8 @@ export class Monitor {
       }));
 
     this.providerReady = this.repositories.length > 0;
-    this.lastError = this.providerReady ? "" : "no matching repositories";
+    if (this.providerReady) this.clearFailure("repository discovery");
+    else this.reportFailure("repository discovery", { error: "no matching repositories" }, Date.now());
     if (this.providerReady) this.startFastSweep("startup");
     return this.providerReady;
   }
@@ -140,8 +178,10 @@ export class Monitor {
     this.backfill = [];
     this.queuedBackfill.clear();
     this.activeDetailNextMs.clear();
+    this.activeDetailErrors.clear();
     this.fastSweepQueue = [];
     this.activeDetailStreak = 0;
+    this.liveRepoStreak = 0;
     this.providerReady = false;
     await this.discoverRepositories();
     return this.configStore.publicConfig();
@@ -160,6 +200,7 @@ export class Monitor {
     for (const repo of this.repositories) repo.nextPollMs = 0;
     for (const key of this.activeDetailNextMs.keys()) this.activeDetailNextMs.set(key, 0);
     this.activeDetailStreak = 0;
+    this.liveRepoStreak = 0;
     this.startFastSweep("manual");
     return true;
   }
@@ -179,24 +220,35 @@ export class Monitor {
       "/repos/" + repo.fullName + "/actions/runs?per_page=100",
       repo.etag
     );
-    this.updateRate(response, nowMs);
+    const receivedMs = Date.now();
+    this.updateRate(response, receivedMs);
+    repo.lastResponseStatus = response.status;
+    const scope = "repo:" + repo.fullName;
 
     if (response.notModified) {
       repo.errors = 0;
+      repo.successfulPollCount += 1;
+      repo.lastSuccessAtMs = receivedMs;
+      this.lastSuccessfulSummaryAtMs = receivedMs;
+      this.clearFailure(scope);
       const age = repo.lastActivityMs ? nowMs - repo.lastActivityMs : this.policy.warmWindowMs * 10;
       repo.nextPollMs = nowMs + this.policy.nextInterval(repo.hadActive, repo.hadQueued, age, 0);
       return true;
     }
 
-    if (!response.ok || !response.json) {
+    if (!response.ok || !Array.isArray(response.json?.workflow_runs)) {
       repo.errors += 1;
-      repo.nextPollMs = nowMs + this.policy.nextInterval(false, false, 0, repo.errors);
-      this.lastError = repo.fullName + " runs HTTP " + response.status;
+      repo.nextPollMs = receivedMs + this.policy.nextInterval(false, false, 0, repo.errors);
+      this.reportFailure(scope, response, receivedMs);
       return false;
     }
 
     if (response.etag) repo.etag = response.etag;
     repo.errors = 0;
+    repo.successfulPollCount += 1;
+    repo.lastSuccessAtMs = receivedMs;
+    this.lastSuccessfulSummaryAtMs = receivedMs;
+    this.clearFailure(scope);
     let hasActive = false;
     let hasQueued = false;
     let newestUpdated = 0;
@@ -225,6 +277,10 @@ export class Monitor {
         this.queueBackfill(run);
         backfillQueued += 1;
       }
+      if (run.state === RunState.Completed) {
+        this.activeDetailNextMs.delete(detailKey(run));
+        this.activeDetailErrors.delete(detailKey(run));
+      }
     }
 
     if (repo.latestUpdatedEpoch !== newestUpdated) {
@@ -248,7 +304,7 @@ export class Monitor {
     this.lastSchedulerAction = "sweep:" + this.fastSweepReason;
     const results = await Promise.allSettled(batch.map((repo) => this.pollRepository(repo, nowMs)));
     const rejected = results.find((result) => result.status === "rejected");
-    if (rejected) this.lastError = "repository sweep: " + rejected.reason.message;
+    if (rejected) this.reportFailure("repository sweep", { error: "unexpected polling exception" });
     if (!this.fastSweepQueue.length) this.fastSweepReason = "";
     this.activeDetailStreak = 0;
     this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
@@ -259,11 +315,13 @@ export class Monitor {
     const response = await this.client.get(
       "/repos/" + run.repository + "/actions/runs/" + run.runId + "/jobs?per_page=100"
     );
-    this.updateRate(response, nowMs);
-    if (!response.ok || !response.json) {
-      this.lastError = run.repository + " jobs HTTP " + response.status;
+    this.updateRate(response, Date.now());
+    const scope = "jobs:" + detailKey(run);
+    if (!response.ok || !Array.isArray(response.json?.jobs)) {
+      this.reportFailure(scope, response, Date.now());
       return false;
     }
+    this.clearFailure(scope);
 
     const detailed = {
       ...run,
@@ -301,12 +359,21 @@ export class Monitor {
       }
 
       const active = dueActiveRun(this.tracker.all(), this.activeDetailNextMs, nowMs, detailKey);
-      const repo = dueRepository(this.repositories, nowMs);
+      const repo = duePriorityRepository(
+        this.repositories, nowMs, this.liveRepoStreak, MAX_LIVE_REPO_BURST
+      );
 
       if (shouldServiceActive(active, repo, this.activeDetailStreak, ACTIVE_DETAIL_BURST_LIMIT)) {
         const key = detailKey(active.snapshot);
-        await this.fetchRunDetails(active.snapshot, nowMs, false);
-        this.activeDetailNextMs.set(key, nowMs + this.policy.activeMs);
+        const ok = await this.fetchRunDetails(active.snapshot, nowMs, false);
+        const errors = ok ? 0 : (this.activeDetailErrors.get(key) || 0) + 1;
+        if (ok) this.activeDetailErrors.delete(key);
+        else this.activeDetailErrors.set(key, errors);
+        this.activeDetailNextMs.set(
+          key,
+          Date.now() + (ok ? this.policy.activeMs :
+            this.policy.nextInterval(false, false, 0, errors))
+        );
         this.activeDetailStreak += 1;
         this.lastSchedulerAction = "active-detail:" + key;
         this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
@@ -315,6 +382,8 @@ export class Monitor {
 
       if (repo) {
         await this.pollRepository(repo, nowMs);
+        this.liveRepoStreak = (repo.hadActive || repo.hadQueued)
+          ? this.liveRepoStreak + 1 : 0;
         this.activeDetailStreak = 0;
         this.lastSchedulerAction = "repository:" + repo.fullName;
         this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
@@ -323,8 +392,15 @@ export class Monitor {
 
       if (active) {
         const key = detailKey(active.snapshot);
-        await this.fetchRunDetails(active.snapshot, nowMs, false);
-        this.activeDetailNextMs.set(key, nowMs + this.policy.activeMs);
+        const ok = await this.fetchRunDetails(active.snapshot, nowMs, false);
+        const errors = ok ? 0 : (this.activeDetailErrors.get(key) || 0) + 1;
+        if (ok) this.activeDetailErrors.delete(key);
+        else this.activeDetailErrors.set(key, errors);
+        this.activeDetailNextMs.set(
+          key,
+          Date.now() + (ok ? this.policy.activeMs :
+            this.policy.nextInterval(false, false, 0, errors))
+        );
         this.activeDetailStreak += 1;
         this.lastSchedulerAction = "active-detail:" + key;
         this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
@@ -352,8 +428,27 @@ export class Monitor {
     const nowMs = Date.now();
     const nowEpoch = Math.floor(nowMs / 1000);
     const tracked = this.tracker.all();
-    const scannedRepositoryCount = this.repositories.filter((repo) => repo.pollCount > 0).length;
-    const dueRepositoryCount = this.repositories.filter((repo) => Number(repo.nextPollMs || 0) <= nowMs).length;
+    const scannedRepositoryCount = this.repositories.filter(
+      (repo) => repo.successfulPollCount > 0
+    ).length;
+    const dueRepositoryCount = this.repositories.filter(
+      (repo) => Number(repo.nextPollMs || 0) <= nowMs
+    ).length;
+    const ages = this.repositories
+      .filter(repo => repo.lastSuccessAtMs > 0)
+      .map(repo => nowMs - repo.lastSuccessAtMs);
+    const liveAges = this.repositories
+      .filter(repo => (repo.hadActive || repo.hadQueued) && repo.lastSuccessAtMs > 0)
+      .map(repo => nowMs - repo.lastSuccessAtMs);
+    const oldestRepoSummaryAgeMs = ages.length ? Math.max(...ages) : null;
+    const oldestLiveSummaryAgeMs = liveAges.length ? Math.max(...liveAges) : null;
+    const freshError = this.lastError && nowMs - this.lastErrorAtMs < ERROR_VISIBLE_MS;
+    const rateLimited = nowMs < this.rateLimitedUntilMs;
+    const syncStatus = rateLimited ? "rate_limited" :
+      !this.providerReady ? "offline" :
+      scannedRepositoryCount < this.repositories.length ? "scanning" :
+      oldestLiveSummaryAgeMs !== null && oldestLiveSummaryAgeMs > LIVE_FRESHNESS_WARNING_MS ? "stale" :
+      freshError ? "degraded" : "online";
     const trackedActiveCount = tracked.filter((run) => run.snapshot.state === RunState.InProgress).length;
     const trackedQueuedCount = tracked.filter((run) => run.snapshot.state === RunState.Queued).length;
     const trackedCompletedCount = tracked.filter((run) => run.snapshot.state === RunState.Completed).length;
@@ -369,6 +464,11 @@ export class Monitor {
       providerReady: this.providerReady,
       repositoryCount: this.repositories.length,
       scannedRepositoryCount,
+      oldestRepoSummaryAgeMs,
+      oldestLiveSummaryAgeMs,
+      lastSuccessfulSummaryAtMs: this.lastSuccessfulSummaryAtMs,
+      syncStatus,
+      recentRequestErrors: this.recentRequestErrors,
       pendingSweepCount: this.fastSweepQueue.length,
       sweepReason: this.fastSweepReason,
       dueRepositoryCount,
@@ -380,7 +480,9 @@ export class Monitor {
       schedulerAction: this.lastSchedulerAction,
       rateRemaining: this.rateRemaining,
       rateLimitedUntil: this.rateLimitedUntilMs || 0,
-      lastError: this.lastError,
+      rateLimitReason: rateLimited ? this.lastRateLimitReason : "",
+      lastError: freshError || !this.providerReady ? this.lastError : "",
+      lastErrorAgeMs: freshError ? nowMs - this.lastErrorAtMs : null,
       updatedAt: nowMs,
       rows
     };
