@@ -48,3 +48,22 @@ export function takeSweepBatch(queue, repositories, batchSize) {
   }
   return batch;
 }
+
+
+// Favor live run summaries while reserving regular slots for the oldest-due
+// idle repositories. Otherwise a large set of cold repos can push an active
+// repo hours beyond its nominal 15-second target interval.
+export function duePriorityRepository(repositories, nowMs, liveStreak = 0, maxLiveBurst = 2) {
+  const oldest = dueRepository(repositories, nowMs);
+  const live = dueRepository(
+    repositories.filter(repo => repo.hadActive || repo.hadQueued),
+    nowMs
+  );
+  const nonLive = dueRepository(
+    repositories.filter(repo => !repo.hadActive && !repo.hadQueued),
+    nowMs
+  );
+  if (live && (liveStreak < maxLiveBurst || !nonLive)) return live;
+  if (nonLive && liveStreak >= maxLiveBurst) return nonLive;
+  return oldest;
+}
