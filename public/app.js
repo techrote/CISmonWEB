@@ -21,6 +21,8 @@ const elements = {
   liveCount: $("#liveCount"),
   visibleCount: $("#visibleCount"),
   rateRemaining: $("#rateRemaining"),
+  syncAge: $("#syncAge"),
+  syncBanner: $("#syncBanner"),
   updatedAt: $("#updatedAt"),
   telemetry: $("#telemetry"),
   errorBanner: $("#errorBanner"),
@@ -337,12 +339,51 @@ async function switchSurface(surfaceId) {
   schedulePoll();
 }
 
+function formatAge(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return "—";
+  if (ms < 1000) return "<1s";
+  if (ms < 60000) return Math.floor(ms / 1000) + "s";
+  if (ms < 3600000) return Math.floor(ms / 60000) + "m";
+  return Math.floor(ms / 3600000) + "h";
+}
+
+function renderSyncHealth(state) {
+  const mode = state.syncStatus || (state.providerReady ? "online" : "offline");
+  const indicator = {
+    online: "ONLINE", scanning: "SCANNING", stale: "STALE",
+    degraded: "DEGRADED", rate_limited: "PAUSED", offline: "OFFLINE"
+  };
+  elements.providerState.textContent = indicator[mode] || "UNKNOWN";
+  elements.syncAge.textContent = formatAge(
+    state.oldestLiveSummaryAgeMs ?? state.oldestRepoSummaryAgeMs
+  );
+  let warning = "";
+  if (mode === "rate_limited") {
+    const remaining = Math.max(0, (state.rateLimitedUntil || 0) - Date.now());
+    warning = "GitHub API rate-limited. Polling paused for " +
+      formatAge(remaining) + ". " + (state.rateLimitReason || "") +
+      ". Existing workflow data is cached and may be stale.";
+  } else if (mode === "stale") {
+    warning = "Live workflow states are stale: the slowest active repository was last confirmed " +
+      formatAge(state.oldestLiveSummaryAgeMs) + " ago. GitHub may have newer queued/running/completed states. Polling continues.";
+  } else if (mode === "degraded") {
+    warning = "GitHub API requests are degraded; some workflow stages may lag. " +
+      (state.lastError || "Retrying failed requests with backoff.");
+  } else if (state.rateRemaining >= 0 && state.rateRemaining <= 500) {
+    warning = "GitHub API quota is low (" + state.rateRemaining +
+      " remaining). The scheduler may need to back off.";
+  }
+  elements.syncBanner.hidden = !warning;
+  elements.syncBanner.dataset.sync = mode;
+  elements.syncBanner.textContent = warning;
+}
+
 async function pollState() {
   if (polling) return;
   polling = true;
   try {
     const state = await api("/api/state");
-    elements.providerState.textContent = state.providerReady ? "ONLINE" : "WAITING";
+    renderSyncHealth(state);
     elements.repoCount.textContent = String(state.repositoryCount);
     elements.scannedRepoCount.textContent =
       String(state.scannedRepositoryCount) + "/" + String(state.repositoryCount);
@@ -355,6 +396,8 @@ async function pollState() {
     const surface = activeSurface();
     elements.errorBanner.hidden = !surface.showError || !state.lastError;
     elements.errorBanner.textContent = state.lastError || "";
+    elements.errorBanner.dataset.kind = /HTTP 50[0-9]|request timeout|network request failed/.test(state.lastError || "")
+      ? "transient" : "error";
 
     const scanning = state.scannedRepositoryCount < state.repositoryCount || state.pendingSweepCount > 0;
     elements.scanBanner.hidden = !scanning;
