@@ -784,6 +784,9 @@ function writePaneForm(pane) {
   $("#dualPaneDensity").value = pane.density || "compact";
   $("#dualPaneAttention").value = pane.minAttention;
   $("#dualPaneWrap").checked = pane.gridWrap;
+  $("#vertPaneHeightUnit").value = pane.heightUnit || "vh";
+  $("#vertPaneHeightValue").value = pane.heightValue || 42;
+  updateVertHeightRange();
   $("#dualPaneRepositories").value = pane.repositoryPatterns.join("\n");
   $("#dualPaneWorkflows").value = pane.workflowPatterns.join("\n");
   $("#dualPaneEvents").value = pane.eventPatterns.join("\n");
@@ -794,11 +797,21 @@ function writePaneForm(pane) {
   })) $("#"+selector).checked = pane[key];
   writeFieldEditor("#dualGridFieldEditor", pane.gridFields);
 }
+function updateVertHeightRange() {
+  const unit = $("#vertPaneHeightUnit").value;
+  const element = $("#vertPaneHeightValue");
+  element.min = unit === "px" ? "120" : "10";
+  element.max = unit === "px" ? "1600" : "100";
+}
+
 function commitPaneForm() {
   const surface = editingSurfaces.find(item => item.id === editingSurfaceId);
   if (!surface || $("#dualPaneSection").hidden) return;
-  const list = [...surface.dualPanes];
+  const vertical = surface.layout === "focus_vert";
+  const key = vertical ? "vertPanes" : "dualPanes";
+  const list = [...surface[key]];
   const original = list[editingPaneIndex];
+  if (!original) return;
   const value = {
     ...original,
     name: $("#dualPaneName").value,
@@ -820,16 +833,44 @@ function commitPaneForm() {
     stallsOnly: $("#dualPaneStalls").checked,
     gridFields: readFieldEditor("#dualGridFieldEditor")
   };
-  list[editingPaneIndex] = normalizePane(value, editingPaneIndex, surface);
-  surface.dualPanes = list;
-}
-function updateDualSection(surface) {
-  $("#dualPaneSection").hidden = surface.layout !== "focus_dual";
-  $("#focusGridSection").hidden = !["rows","table","focus_dual"].includes(surface.layout);
-  if (surface.layout === "focus_dual") {
-    $("#dualPaneSelect").value = String(editingPaneIndex);
-    writePaneForm(surface.dualPanes[editingPaneIndex]);
+  if (vertical) {
+    value.heightUnit = $("#vertPaneHeightUnit").value;
+    value.heightValue = Number($("#vertPaneHeightValue").value);
+    list[editingPaneIndex] = normalizeVertPanes(
+      list.map((pane, i) => i === editingPaneIndex ? value : pane),
+      surface.vertCount, surface
+    )[editingPaneIndex];
+  } else {
+    list[editingPaneIndex] = normalizePane(value, editingPaneIndex, surface);
   }
+  surface[key] = list;
+}
+
+function updateDualSection(surface) {
+  const vertical = surface.layout === "focus_vert";
+  const multiple = vertical || surface.layout === "focus_dual";
+  $("#dualPaneSection").hidden = !multiple;
+  $("#focusGridSection").hidden = !["rows","table","focus_dual","focus_vert"].includes(surface.layout);
+  $("#vertPaneCountGroup").hidden = !vertical;
+  $("#vertPaneHeightGroup").hidden = !vertical;
+  $("#paneEditorTitle").textContent = vertical
+    ? "Focus Vert · independent stacked pane settings"
+    : "Focus Dual · independent pane settings";
+  if (!multiple) return;
+  const count = vertical ? surface.vertCount : 2;
+  if (editingPaneIndex >= count) editingPaneIndex = count - 1;
+  const select = $("#dualPaneSelect");
+  select.replaceChildren();
+  for (let index = 0; index < count; index++) {
+    const option = node("option", "",
+      vertical ? "Pane " + (index + 1) :
+        index === 0 ? "Left pane" : "Right pane");
+    option.value = String(index);
+    select.append(option);
+  }
+  $("#vertPaneCount").value = String(surface.vertCount);
+  select.value = String(editingPaneIndex);
+  writePaneForm((vertical ? surface.vertPanes : surface.dualPanes)[editingPaneIndex]);
 }
 
 function writeSurfaceForm(surface) {
@@ -955,18 +996,29 @@ $("#dualPaneSelect").addEventListener("change", () => {
   commitPaneForm();
   editingPaneIndex = next;
   const surface = editingSurfaces.find(x => x.id === editingSurfaceId);
-  if (surface) writePaneForm(surface.dualPanes[next]);
+  if (surface) writePaneForm(
+    (surface.layout === "focus_vert" ? surface.vertPanes : surface.dualPanes)[next]
+  );
+});
+$("#vertPaneHeightUnit").addEventListener("change", updateVertHeightRange);
+$("#vertPaneCount").addEventListener("change", () => {
+  const surface = editingSurfaces.find(x => x.id === editingSurfaceId);
+  if (!surface || surface.layout !== "focus_vert") return;
+  commitPaneForm();
+  const count = normalizeVertCount($("#vertPaneCount").value);
+  surface.vertPanes = normalizeVertPanes(surface.vertPanes, count, surface);
+  surface.vertCount = count;
+  editingPaneIndex = Math.min(editingPaneIndex, count - 1);
+  updateDualSection(surface);
 });
 $("#surfaceLayout").addEventListener("change", () => {
   const current = editingSurfaces.find(x => x.id === editingSurfaceId);
   if (!current) return;
-  // Commit the outgoing pane before hiding its editor.
+  // Commit the outgoing editor before switching between dual and vertical.
   commitPaneForm();
-  $("#dualPaneSection").hidden = $("#surfaceLayout").value !== "focus_dual";
-  if (!$("#dualPaneSection").hidden) {
-    $("#dualPaneSelect").value = String(editingPaneIndex);
-    writePaneForm(current.dualPanes[editingPaneIndex]);
-  }
+  current.layout = $("#surfaceLayout").value;
+  editingPaneIndex = 0;
+  updateDualSection(current);
 });
 
 elements.surfaceEditorSelect.addEventListener("change", () => {
