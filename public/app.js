@@ -368,6 +368,9 @@ function renderSyncHealth(state) {
       formatAge(state.oldestLiveSummaryAgeMs) + " ago. GitHub may have newer queued/running/completed states. Polling continues.";
   } else if (mode === "degraded") {
     warning = "GitHub API requests are degraded; some workflow stages may lag. " +
+      (state.failedInitialScanCount
+        ? state.failedInitialScanCount + " repositories have not yet returned a successful workflow summary. "
+        : "") +
       (state.lastError || "Retrying failed requests with backoff.");
   } else if (state.rateRemaining >= 0 && state.rateRemaining <= 500) {
     warning = "GitHub API quota is low (" + state.rateRemaining +
@@ -399,13 +402,17 @@ async function pollState() {
     elements.errorBanner.dataset.kind = /HTTP 50[0-9]|request timeout|network request failed/.test(state.lastError || "")
       ? "transient" : "error";
 
-    const scanning = state.scannedRepositoryCount < state.repositoryCount || state.pendingSweepCount > 0;
-    elements.scanBanner.hidden = !scanning;
-    elements.scanBanner.textContent = scanning
-      ? "Repository sweep " + state.scannedRepositoryCount + "/" + state.repositoryCount +
-        " checked · " + state.pendingSweepCount + " pending" +
-        (state.sweepReason ? " · " + state.sweepReason : "") +
-        ". Activity is incomplete until this sweep finishes."
+    const incomplete = state.scannedRepositoryCount < state.repositoryCount;
+    const unfinished = state.pendingSweepCount > 0 ||
+      state.attemptedRepositoryCount < state.repositoryCount;
+    elements.scanBanner.hidden = !incomplete;
+    elements.scanBanner.textContent = incomplete
+      ? unfinished
+        ? "Repository sweep " + state.scannedRepositoryCount + "/" + state.repositoryCount +
+          " confirmed · " + state.pendingSweepCount + " pending" +
+          ". Workflow discovery remains incomplete."
+        : state.failedInitialScanCount + " repositories failed initial workflow acquisition." +
+          " Retries continue with exponential backoff; their live states are unknown."
       : "";
 
     renderDashboard(state);
