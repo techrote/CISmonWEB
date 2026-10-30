@@ -80,6 +80,14 @@ export class RuntimeAnalyzer {
     return result;
   }
 
+  analyzeQueuedRun(run, waitingMs) {
+    const result = this.analyze(baselineKey.run(run), 0, false, Conclusion.Unknown);
+    result.elapsedMs = waitingMs;
+    result.estimatedRemainingMs = 0;
+    result.reason = "queued; execution has not started";
+    return result;
+  }
+
   analyzeRun(run, nowEpoch) {
     const elapsed = elapsedMs(
       run.startedAtEpoch,
@@ -87,13 +95,7 @@ export class RuntimeAnalyzer {
       nowEpoch
     );
     if (run.state === RunState.Queued) {
-      // Queue wait is NOT execution time. Never compare it with a completed
-      // run's duration baseline or declare a queued workflow "stalled".
-      const result = this.analyze(baselineKey.run(run), 0, false, Conclusion.Unknown);
-      result.elapsedMs = elapsed;
-      result.estimatedRemainingMs = 0;
-      result.reason = "queued; execution has not started";
-      return result;
+      return this.analyzeQueuedRun(run, elapsed);
     }
     return this.analyze(
       baselineKey.run(run), elapsed,
