@@ -32,6 +32,8 @@
     <div class="toolbar">
       <button id="refreshButton" class="button secondary" type="button">Rescan</button>
       <button id="fullscreenButton" class="button secondary" type="button">Fullscreen</button>
+      <button id="borderlessButton" class="button secondary" type="button">Surface only</button>
+      <button id="popupButton" class="button secondary" type="button" title="Browser support for removing toolbars and OS window borders varies">Popup</button>
       <button id="surfaceSettingsButton" class="button secondary" type="button">Surface</button>
       <button id="settingsButton" class="button" type="button">Configure</button>
     </div>
@@ -45,6 +47,8 @@
   </nav>
 
   <button id="kioskSurfaceButton" class="kiosk-surface-button" type="button" aria-label="Open surface settings">Surface</button>
+
+  <button id="exitBorderlessButton" class="minimal-exit-button" type="button" hidden>Exit surface-only</button>
 
   <main id="main">
     <section id="syncBanner" class="sync-banner" role="status" hidden></section>
@@ -193,6 +197,7 @@
                 <option value="rows">Rows</option>
                 <option value="cards">Cards</option>
                 <option value="table">Dense table</option>
+                <option value="focus_dual">Focus Dual (two independent grids)</option>
                 <option value="lanes">Lanes</option>
                 <option value="signal">Signal Retention</option>
                 <option value="afterimage">Afterimage Debt</option>
@@ -339,6 +344,66 @@
             <label class="check-field"><input id="field-branch" data-surface-field="branch" type="checkbox"><span>Branch</span></label>
             <label class="check-field"><input id="field-confidence" data-surface-field="confidence" type="checkbox"><span>Confidence</span></label>
           </div>
+        </section>
+
+
+        <section class="form-section" id="focusGridSection">
+          <h3>Focus grid · fields and dimensions</h3>
+          <div class="form-grid three">
+            <label class="check-field">
+              <input id="surfaceGridWrap" type="checkbox">
+              <span>Wrap cells (unchecked: clip with ellipsis)</span>
+            </label>
+            <label class="field">
+              <span>Sort by</span>
+              <select id="surfaceGridSort"></select>
+            </label>
+            <label class="field">
+              <span>Order</span>
+              <select id="surfaceGridDirection">
+                <option value="desc">Descending</option>
+                <option value="asc">Ascending</option>
+              </select>
+            </label>
+          </div>
+          <p class="surface-help">Drag columns below to reorder; toggle to show/hide. In the grid, drag header dividers to resize or click a header to sort. Sizes and order persist.</p>
+          <div id="gridFieldEditor" class="grid-field-editor" aria-label="Drag to reorder grid columns"></div>
+        </section>
+
+        <section class="form-section" id="dualPaneSection" hidden>
+          <h3>Focus Dual · independent pane settings</h3>
+          <label class="compact-field">
+            <span>Editing pane</span>
+            <select id="dualPaneSelect">
+              <option value="0">Left pane</option>
+              <option value="1">Right pane</option>
+            </select>
+          </label>
+          <div class="form-grid three">
+            <label class="field"><span>Pane name</span><input id="dualPaneName" maxlength="50"></label>
+            <label class="field"><span>Sort by</span><select id="dualPaneSort"></select></label>
+            <label class="field"><span>Order</span><select id="dualPaneDirection"><option value="desc">Descending</option><option value="asc">Ascending</option></select></label>
+            <label class="field"><span>Maximum runs</span><input id="dualPaneMax" type="number" min="1" max="512"></label>
+            <label class="field"><span>Minimum attention</span><select id="dualPaneAttention">
+              <option value="normal">Normal+</option><option value="interesting">Interesting+</option>
+              <option value="suspicious">Suspicious+</option><option value="action_required">Action required</option>
+            </select></label>
+            <label class="check-field"><input id="dualPaneWrap" type="checkbox"><span>Wrap pane cells</span></label>
+            <label class="field"><span>Repository globs</span><textarea id="dualPaneRepositories" rows="3" placeholder="techrote/*"></textarea></label>
+            <label class="field"><span>Workflow globs</span><textarea id="dualPaneWorkflows" rows="3"></textarea></label>
+            <label class="field"><span>Event globs</span><textarea id="dualPaneEvents" rows="3"></textarea></label>
+          </div>
+          <div class="check-grid">
+            <label class="check-field"><input id="dualPaneRunning" type="checkbox"><span>Running</span></label>
+            <label class="check-field"><input id="dualPaneQueued" type="checkbox"><span>Queued</span></label>
+            <label class="check-field"><input id="dualPaneSuccess" type="checkbox"><span>Success</span></label>
+            <label class="check-field"><input id="dualPaneFailures" type="checkbox"><span>Failures</span></label>
+            <label class="check-field"><input id="dualPaneOther" type="checkbox"><span>Other terminal</span></label>
+            <label class="check-field"><input id="dualPaneWatched" type="checkbox"><span>Watched only</span></label>
+            <label class="check-field"><input id="dualPaneStalls" type="checkbox"><span>Stalls only</span></label>
+          </div>
+          <p class="surface-help">Drag the field chips to reorder this pane independently. Column resizing and header sorting are saved separately for each pane.</p>
+          <div id="dualGridFieldEditor" class="grid-field-editor" aria-label="Drag to reorder pane columns"></div>
         </section>
 
         <section class="form-section">
