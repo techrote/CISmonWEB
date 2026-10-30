@@ -70,7 +70,7 @@ test("local server serves animation assets and migrates legacy profiles without 
     assert.equal(config.surfaces[0].name, "My Custom Focus");
     assert.equal(config.surfaces[0].maxItems, 41);
     assert.deepEqual(config.surfaces.slice(1).map((s) => s.id), [
-      "signal-retention", "afterimage-debt", "repository-lanes-plus", "hungry-margins"
+      "signal-retention", "afterimage-debt", "repository-lanes-plus", "hungry-margins", "focus-dual"
     ]);
 
     for (const asset of ["/fun-core.js", "/fun-engine.js", "/fun-surfaces.js",
