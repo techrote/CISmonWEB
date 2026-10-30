@@ -23,7 +23,7 @@ export const GRID_LABEL = Object.freeze(Object.fromEntries(GRID_FIELDS.map(([id,
 export const GRID_DEFAULT_WIDTH = Object.freeze(Object.fromEntries(GRID_FIELDS.map(([id, , width]) => [id, width])));
 export const DEFAULT_FOCUS_COLUMNS = Object.freeze([
   "owner", "repository", "workflow", "attention", "stage",
-  "state", "elapsed", "remaining", "confidence", "qty", "updated"
+  "state", "elapsed", "remaining", "confidence", "qty", "added", "updated"
 ]);
 
 export function normalizeGridFields(input, fallback = DEFAULT_FOCUS_COLUMNS) {
