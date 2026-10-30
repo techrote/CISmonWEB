@@ -24,6 +24,7 @@ function monitorWithClient(get) {
   monitor.client = { get };
   monitor.config = { backfillRunsPerRepo: 0 };
   monitor.providerReady = true;
+  monitor.nextDiscoveryMs = Date.now() + 10 * 60000;
   return monitor;
 }
 
