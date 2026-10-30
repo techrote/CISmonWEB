@@ -69,7 +69,11 @@ export class Monitor {
     this.client = new GitHubClient(() => this.config.githubToken);
     await this.discoverRepositories();
     this.timer = setInterval(() => {
-      this.tick().catch((error) => { this.lastError = error.message; });
+      this.tick().catch((error) => {
+        this.reportFailure("scheduler", {
+          error: error?.message || "unexpected polling failure"
+        });
+      });
     }, 250);
   }
 
