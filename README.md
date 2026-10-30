@@ -40,6 +40,7 @@ Built-in profiles:
 | Surface | Purpose |
 | --- | --- |
 | Focus | balanced attention-ranked desk view |
+| Focus Dual | two independently configured, sortable, resizable Focus grids in one surface |
 | Dense | maximum-information table view |
 | Alerts | interesting/suspicious/action-required work only |
 | Wallboard | kiosk-style card display for a larger screen |
@@ -65,6 +66,8 @@ A surface can be addressed directly with a URL such as:
 Use the **Surface** button to edit, create, duplicate, delete or reset profiles. Fullscreen is available from the top toolbar.
 
 See docs/DISPLAY_SURFACES.md for the complete model.
+
+**Focus UI upgrade:** Focus/Dense/Rows can now show separately selectable OWNER, REPO, WORKFLOW, ATTN, ADDED, UPDATED, ETA, CONF and QTY (successful baseline sample count), with sortable headers, drag-resizable columns, field drag reordering and wrap/clip policy. Use **Surface only** to hide all app chrome, or **Popup** for a browser-controlled, toolbar-minimal window. See [docs/FOCUS_GRID.md](docs/FOCUS_GRID.md) for the controls and popup limitations.
 
 ### Original 037 artwork and autonomous CI visuals
 
