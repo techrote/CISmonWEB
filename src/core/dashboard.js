@@ -74,12 +74,14 @@ export function buildDashboard(
       const localElapsed = isTerminal(run.state) && tracked.terminalSinceMs
         ? tracked.terminalSinceMs - tracked.firstSeenMs
         : nowMs - tracked.firstSeenMs;
-      runAnalysis = analyzer.analyze(
-        baselineKey.run(run),
-        localElapsed,
-        isTerminal(run.state),
-        run.conclusion
-      );
+      runAnalysis = run.state === RunState.Queued
+        ? analyzer.analyzeQueuedRun(run, localElapsed)
+        : analyzer.analyze(
+          baselineKey.run(run),
+          localElapsed,
+          isTerminal(run.state),
+          run.conclusion
+        );
       item.elapsedMs = localElapsed;
     }
     applyAnalysis(item, runAnalysis);
