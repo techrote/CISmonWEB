@@ -6,6 +6,7 @@ import { RunState } from "./core/model.js";
 import { RunTracker } from "./core/tracker.js";
 import { GitHubClient, parseJob, parseRun } from "./github.js";
 import {
+  activityTimeFromGitHub,
   dueActiveRun,
   duePriorityRepository,
   shouldServiceActive,
@@ -285,7 +286,7 @@ export class Monitor {
 
     if (repo.latestUpdatedEpoch !== newestUpdated) {
       repo.latestUpdatedEpoch = newestUpdated;
-      repo.lastActivityMs = nowMs;
+      repo.lastActivityMs = activityTimeFromGitHub(newestUpdated, Date.now());
     }
     repo.hadActive = hasActive;
     repo.hadQueued = hasQueued;
