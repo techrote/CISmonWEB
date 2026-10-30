@@ -25,7 +25,8 @@
       <div><span class="label">LIVE</span><strong id="liveCount">0/0</strong></div>
       <div><span class="label">VISIBLE</span><strong id="visibleCount">0</strong></div>
       <div><span class="label">RATE</span><strong id="rateRemaining">—</strong></div>
-      <div><span class="label">UPDATED</span><strong id="updatedAt">—</strong></div>
+      <div><span class="label">SYNC AGE</span><strong id="syncAge">—</strong></div>
+      <div><span class="label">UI</span><strong id="updatedAt">—</strong></div>
     </div>
 
     <div class="toolbar">
@@ -46,6 +47,7 @@
   <button id="kioskSurfaceButton" class="kiosk-surface-button" type="button" aria-label="Open surface settings">Surface</button>
 
   <main id="main">
+    <section id="syncBanner" class="sync-banner" role="status" hidden></section>
     <section id="errorBanner" class="error-banner" hidden></section>
     <section id="scanBanner" class="scan-banner" hidden></section>
 

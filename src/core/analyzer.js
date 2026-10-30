@@ -80,12 +80,26 @@ export class RuntimeAnalyzer {
     return result;
   }
 
+  analyzeQueuedRun(run, waitingMs) {
+    const result = this.analyze(baselineKey.run(run), 0, false, Conclusion.Unknown);
+    result.elapsedMs = waitingMs;
+    result.estimatedRemainingMs = 0;
+    result.reason = "queued; execution has not started";
+    return result;
+  }
+
   analyzeRun(run, nowEpoch) {
+    const elapsed = elapsedMs(
+      run.startedAtEpoch,
+      run.state === RunState.Completed ? run.updatedAtEpoch : 0,
+      nowEpoch
+    );
+    if (run.state === RunState.Queued) {
+      return this.analyzeQueuedRun(run, elapsed);
+    }
     return this.analyze(
-      baselineKey.run(run),
-      elapsedMs(run.startedAtEpoch, run.state === RunState.Completed ? run.updatedAtEpoch : 0, nowEpoch),
-      run.state === RunState.Completed,
-      run.conclusion,
+      baselineKey.run(run), elapsed,
+      run.state === RunState.Completed, run.conclusion
     );
   }
 

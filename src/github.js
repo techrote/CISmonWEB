@@ -1,38 +1,101 @@
 import { Conclusion, RunState } from "./core/model.js";
 
+export function parseRetryAfter(value, nowMs = Date.now()) {
+  if (!value) return 0;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1000, 3_600_000);
+  const dateMs = Date.parse(value);
+  return Number.isFinite(dateMs) ? Math.max(0, Math.min(3_600_000, dateMs - nowMs)) : 0;
+}
+
+export function isGitHubRateLimit(status, remaining, message = "") {
+  return status === 429 ||
+    remaining === 0 ||
+    (status === 403 && /rate limit|abuse detection|too many requests/i.test(message));
+}
+
 export class GitHubClient {
-  constructor(tokenProvider) {
+  constructor(tokenProvider, fetchImpl = globalThis.fetch, timeoutMs = 12_000) {
     this.tokenProvider = tokenProvider;
+    this.fetchImpl = fetchImpl;
+    this.timeoutMs = timeoutMs;
   }
 
   async get(apiPath, etag = "") {
     const headers = {
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "CISmonWEB",
+      "User-Agent": "CISmonWEB"
     };
     const token = this.tokenProvider();
     if (token) headers.Authorization = "Bearer " + token;
     if (etag) headers["If-None-Match"] = etag;
 
-    const response = await fetch("https://api.github.com" + apiPath, { headers });
-    let json = null;
-    if (response.status !== 304) {
-      const text = await response.text();
-      if (text) {
-        try { json = JSON.parse(text); } catch { json = null; }
+    const controller = new AbortController();
+    let deadlineId;
+    // A real ref'ed deadline covers both fetch and response.text(). A signal
+    // alone may be unreferenced and cannot guarantee an uncooperative request
+    // or test transport ever releases the scheduler.
+    const deadline = new Promise((_, reject) => {
+      deadlineId = setTimeout(() => {
+        controller.abort();
+        reject(Object.assign(new Error("request timeout"), { name: "TimeoutError" }));
+      }, this.timeoutMs);
+    });
+    try {
+      const request = async () => {
+        const response = await this.fetchImpl("https://api.github.com" + apiPath, {
+          headers, signal: controller.signal
+        });
+        return response;
+      };
+      const response = await Promise.race([request(), deadline]);
+      let json = null;
+      if (response.status !== 304) {
+        const text = await Promise.race([response.text(), deadline]);
+        if (text) {
+          try { json = JSON.parse(text); } catch { json = null; }
+        }
       }
-    }
 
-    return {
-      status: response.status,
-      ok: response.ok,
-      notModified: response.status === 304,
-      json,
-      etag: response.headers.get("etag") || "",
-      rateRemaining: Number(response.headers.get("x-ratelimit-remaining") ?? -1),
-      rateResetEpoch: Number(response.headers.get("x-ratelimit-reset") ?? 0),
-    };
+      const remainingRaw = response.headers.get("x-ratelimit-remaining");
+      const remaining = remainingRaw === null ? -1 : Number(remainingRaw);
+      const resetEpoch = Number(response.headers.get("x-ratelimit-reset") || 0);
+      const retryAfterMs = parseRetryAfter(response.headers.get("retry-after"));
+      const message = typeof json?.message === "string" ? json.message : "";
+      return {
+        status: response.status,
+        ok: response.ok,
+        notModified: response.status === 304,
+        json,
+        etag: response.headers.get("etag") || "",
+        rateRemaining: Number.isFinite(remaining) ? remaining : -1,
+        rateResetEpoch: Number.isFinite(resetEpoch) ? resetEpoch : 0,
+        retryAfterMs,
+        rateLimited: isGitHubRateLimit(response.status, remaining, message),
+        transient: response.status >= 500 || response.status === 429,
+        error: response.ok || response.status === 304 ? "" : ("HTTP " + response.status)
+      };
+    } catch (error) {
+      // Treat timeouts and transport resets as failed requests, with bounded
+      // retry/backoff. They must not escape tick() and reset its fairness.
+      const timeout = error?.name === "TimeoutError" || error?.name === "AbortError";
+      return {
+        status: 0,
+        ok: false,
+        notModified: false,
+        json: null,
+        etag: "",
+        rateRemaining: -1,
+        rateResetEpoch: 0,
+        retryAfterMs: 0,
+        rateLimited: false,
+        transient: true,
+        error: timeout ? "request timeout" : "network request failed"
+      };
+    } finally {
+      clearTimeout(deadlineId);
+    }
   }
 }
 

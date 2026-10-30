@@ -18,6 +18,28 @@ src/core contains browser/Node-independent logic:
 
 The normalized data model means GitHub-specific JSON does not leak into dashboard policy.
 
+## Current reliability corrections
+
+The scheduler uses latest workflow `updated_at` timestamps to establish
+repository activity age. First discovery of an old repository is not a
+new activity event. This avoids exceeding steady-state request capacity when
+monitoring dozens of repositories. Active repository summaries have priority
+within a bounded burst, preserving occasional service for inactive repos.
+
+Request bodies and HTTP connections have an explicit 12-second deadline.
+Transient failures (including HTTP 502) are retried with backoff without
+blocking the single scheduler or being misidentified as GitHub rate limits.
+Failures are scoped to their actual endpoint; an unrelated successful request
+does not clear the failed endpoint's warning, while successful recovery does.
+Aged warnings auto-expire from the UI.
+
+A 10-minute repository-catalog refresh preserves live state and ETags.
+`/api/state` reports last successful summary ages separately from browser
+render time so stale GitHub statuses are not shown as current.
+
+Queue time is deliberately excluded from execution-time anomaly/stall
+calculations; the queued workflow's wall-clock age is still displayed.
+
 ## GitHub transport and scheduling
 
 src/github.js owns REST transport and normalization.

@@ -836,3 +836,27 @@ body.surface-hide-chrome main { padding-top: 10px; }
   pointer-events: none;
 }
 .living-art-status[hidden] { display: none !important; }
+
+
+/* Visibility must override component-level grid/flex display. Otherwise a
+   populated table and the "No runs match" panel render simultaneously. */
+[hidden] { display: none !important; }
+
+.sync-banner {
+  border: 1px solid var(--interesting);
+  border-left: 4px solid var(--interesting);
+  background: var(--panel);
+  color: var(--text);
+  padding: 10px 13px;
+  margin-bottom: 11px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.sync-banner[data-sync="rate_limited"] {
+  border-color: var(--action);
+  border-left-color: var(--action);
+}
+.error-banner[data-kind="transient"] {
+  border-color: var(--interesting);
+  border-left-color: var(--interesting);
+}
