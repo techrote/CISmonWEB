@@ -445,6 +445,12 @@ export class Monitor {
     const scannedRepositoryCount = this.repositories.filter(
       (repo) => repo.successfulPollCount > 0
     ).length;
+    const attemptedRepositoryCount = this.repositories.filter(
+      (repo) => repo.pollCount > 0
+    ).length;
+    const failedInitialScanCount = this.repositories.filter(
+      (repo) => repo.pollCount > 0 && repo.successfulPollCount === 0
+    ).length;
     const dueRepositoryCount = this.repositories.filter(
       (repo) => Number(repo.nextPollMs || 0) <= nowMs
     ).length;
@@ -460,7 +466,10 @@ export class Monitor {
     const rateLimited = nowMs < this.rateLimitedUntilMs;
     const syncStatus = rateLimited ? "rate_limited" :
       !this.providerReady ? "offline" :
-      scannedRepositoryCount < this.repositories.length ? "scanning" :
+      scannedRepositoryCount < this.repositories.length &&
+        (this.fastSweepQueue.length || attemptedRepositoryCount < this.repositories.length)
+        ? "scanning" :
+      failedInitialScanCount > 0 ? "degraded" :
       oldestLiveSummaryAgeMs !== null && oldestLiveSummaryAgeMs > LIVE_FRESHNESS_WARNING_MS ? "stale" :
       freshError ? "degraded" : "online";
     const trackedActiveCount = tracked.filter((run) => run.snapshot.state === RunState.InProgress).length;
@@ -478,6 +487,8 @@ export class Monitor {
       providerReady: this.providerReady,
       repositoryCount: this.repositories.length,
       scannedRepositoryCount,
+      attemptedRepositoryCount,
+      failedInitialScanCount,
       oldestRepoSummaryAgeMs,
       oldestLiveSummaryAgeMs,
       lastSuccessfulSummaryAtMs: this.lastSuccessfulSummaryAtMs,
