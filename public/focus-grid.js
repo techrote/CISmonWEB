@@ -149,8 +149,16 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
   }
   table.append(body);
   wrap.append(table);
-  wrap.scrollLeft = callbacks.getScroll?.() || 0;
-  wrap.scrollTop = callbacks.getScrollTop?.() || 0;
+  // DOM dimensions are not known until the new grid has been inserted.
+  // Restore per-pane scroll after layout rather than clamping to zero while
+  // still detached (particularly important for 2-second refreshes).
+  const left = callbacks.getScroll?.() || 0;
+  const top = callbacks.getScrollTop?.() || 0;
+  requestAnimationFrame(() => {
+    if (!wrap.isConnected) return;
+    wrap.scrollLeft = left;
+    wrap.scrollTop = top;
+  });
   wrap.addEventListener("scroll", () => {
     callbacks.onScroll?.(wrap.scrollLeft);
     callbacks.onScrollTop?.(wrap.scrollTop);
