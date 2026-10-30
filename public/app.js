@@ -240,6 +240,7 @@ function renderFocusDual(all, surface) {
   let visible = 0;
   surface.dualPanes.forEach((pane, index) => {
     const section = node("section", "focus-dual-pane");
+    section.dataset.density = pane.density || surface.density;
     const selected = focusDualRows(all, pane, surface, index);
     visible += selected.length;
     const title = node("header", "focus-dual-header");
