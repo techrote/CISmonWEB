@@ -860,3 +860,195 @@ body.surface-hide-chrome main { padding-top: 10px; }
   border-color: var(--interesting);
   border-left-color: var(--interesting);
 }
+
+
+
+/* Focus / Focus Dual: table fields have persisted widths, header sorting and
+   native column dragging. No additional network requests are involved. */
+.dashboard.layout-rows,
+.dashboard.layout-table,
+.dashboard.layout-focus_dual { display: block; }
+.focus-grid-wrap {
+  max-width: 100%;
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: min(77vh, 950px);
+  border: 1px solid var(--line);
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--line) var(--panel);
+}
+.focus-grid-table {
+  table-layout: fixed;
+  border-collapse: collapse;
+  min-width: 100%;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.focus-grid-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+  border-right: 1px solid var(--line-soft);
+  text-align: left;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 0;
+  white-space: nowrap;
+  overflow: visible;
+}
+.focus-grid-head.is-dragging { opacity: .35; }
+.focus-sort {
+  border: none;
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px 9px 8px;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: inherit;
+  background: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.focus-sort:hover { background: var(--panel-3); color: var(--text); }
+.focus-sort:focus-visible, .focus-resize-handle:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.focus-resize-handle {
+  position: absolute;
+  right: -4px;
+  top: 0;
+  bottom: 0;
+  z-index: 3;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+  border-right: 1px solid var(--line);
+}
+.focus-resize-handle:hover, .focus-resize-handle:focus-visible {
+  background: color-mix(in srgb, var(--running) 40%, transparent);
+}
+.focus-grid-row { cursor: pointer; border-left: 3px solid var(--normal); }
+.focus-grid-row[data-attention="interesting"] { border-left-color: var(--interesting); }
+.focus-grid-row[data-attention="suspicious"] { border-left-color: var(--suspicious); }
+.focus-grid-row[data-attention="action_required"] { border-left-color: var(--action); }
+.focus-grid-row:hover { background: var(--panel-2); }
+.focus-grid-row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.focus-grid-cell {
+  border-bottom: 1px solid var(--line-soft);
+  border-right: 1px solid var(--line-soft);
+  padding: 7px 8px;
+  vertical-align: top;
+  overflow: hidden;
+}
+.focus-grid-value { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.focus-grid-table[data-wrap="wrap"] .focus-grid-cell,
+.focus-grid-table[data-wrap="wrap"] .focus-grid-value {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+.focus-grid-table[data-wrap="wrap"] .focus-grid-cell { padding-block: 9px; }
+.focus-grid-value.attention-normal { color: var(--normal); }
+.focus-grid-value.attention-interesting { color: var(--interesting); }
+.focus-grid-value.attention-suspicious { color: var(--suspicious); }
+.focus-grid-value.attention-action_required { color: var(--action); }
+.focus-grid-value.state-in_progress { color: var(--running); }
+.focus-grid-value.state-queued { color: var(--queued); }
+.dashboard.density-ultra .focus-grid-cell { padding-block: 3px; font-size: 10px; }
+.dashboard.density-compact .focus-grid-cell { padding-block: 5px; }
+
+.focus-dual {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 11px;
+  width: 100%;
+  align-items: start;
+}
+.focus-dual-pane { min-width: 0; overflow: hidden; border: 1px solid var(--line); }
+.focus-dual-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  background: var(--panel-2);
+}
+.focus-dual-header small { color: var(--muted); }
+.focus-dual-pane .focus-grid-wrap { border: 0; max-height: 72vh; }
+
+.grid-field-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 12px 0 2px;
+}
+.grid-field-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  padding: 7px 9px;
+  font-size: 11px;
+  cursor: grab;
+  user-select: none;
+}
+.grid-field-chip:hover { border-color: var(--focus); }
+.grid-field-chip:active { cursor: grabbing; }
+.grid-field-chip input { width: auto; }
+
+.minimal-exit-button {
+  display: none;
+  position: fixed;
+  z-index: 99;
+  top: 8px;
+  right: 8px;
+  opacity: .18;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 10px;
+  padding: 7px 10px;
+}
+.minimal-exit-button:hover, .minimal-exit-button:focus-visible { opacity: 1; }
+body.minimal-only .minimal-exit-button { display: block; }
+body.minimal-only > .topbar,
+body.minimal-only > .surfacebar,
+body.minimal-only > .kiosk-surface-button,
+body.minimal-only #summaryStrip,
+body.minimal-only #syncBanner,
+body.minimal-only #errorBanner,
+body.minimal-only #scanBanner,
+body.minimal-only #emptyState {
+  display: none !important;
+}
+body.minimal-only main, body.minimal-only main.full-width {
+  width: 100%;
+  max-width: none;
+  padding: 0;
+  margin: 0;
+}
+body.minimal-only .dashboard, body.minimal-only .focus-dual { min-height: 100vh; }
+body.minimal-only .focus-grid-wrap { max-height: 100vh; }
+body.minimal-only .focus-dual-pane .focus-grid-wrap { max-height: calc(100vh - 45px); }
+body.minimal-only .living-surface, body.minimal-only .living-overlay {
+  min-height: 100vh;
+}
+@media (max-width: 900px) {
+  .focus-dual { grid-template-columns: minmax(0, 1fr); }
+  .focus-dual-pane .focus-grid-wrap { max-height: 45vh; }
+  body.minimal-only .focus-dual-pane .focus-grid-wrap { max-height: 46vh; }
+}
