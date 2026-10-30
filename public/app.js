@@ -115,9 +115,9 @@ function fieldMeta(row, field) {
     case "elapsed": return [row.state === "queued" ? "WAITING" : "ELAPSED", formatDuration(row.elapsedMs), ""];
     case "baseline": return ["MEDIAN", formatDuration(row.baselineMedianMs), row.baselineMedianMs ? row.confidence + " baseline" : "no baseline"];
     case "ratio": return ["RATIO", row.ratio ? row.ratio.toFixed(2) + "×" : "—", row.ratio >= 1.3 ? "above expected" : ""];
-    case "remaining": return ["EST. REMAINING", formatDuration(row.estimatedRemainingMs), row.possiblyStalled ? "possible stall" : ""];
+    case "remaining": return ["ETA", formatDuration(row.estimatedRemainingMs), row.possiblyStalled ? "possible stall" : ""];
     case "branch": return ["BRANCH", row.branch || "—", row.event || ""];
-    case "confidence": return ["CONFIDENCE", row.confidence || "none", row.baselineMedianMs ? "timing model" : ""];
+    case "confidence": return ["CONF", row.confidence || "none", row.baselineMedianMs ? "timing model" : ""];
     default: return [field.toUpperCase(), "—", ""];
   }
 }
