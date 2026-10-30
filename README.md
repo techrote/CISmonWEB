@@ -151,6 +151,44 @@ The top telemetry exposes **SCANNED** and **TRACKED** counts. While a sweep is i
 
 This is distinct from the browser surface refresh cadence: a 1-second surface does not cause GitHub to be polled every second.
 
+## Synchronisation reliability and diagnostics
+
+The browser refreshes its local dashboard independently of GitHub API calls.
+**UI time is not proof of fresh GitHub data.** The top telemetry includes
+**SYNC AGE**, the age of the oldest recently confirmed active/queued repository
+(or the oldest repository when no live workflows are known).
+The sync indicator shows ONLINE / SCANNING / DEGRADED / STALE / PAUSED.
+
+If GitHub reports a transient HTTP 502 or a request stalls, the client now has
+a 12-second end-to-end request deadline. Active job-detail failures use
+bounded exponential retry, and their warnings clear when the same endpoint
+recovers (or disappear from the banner after 90 seconds). Repository workflow
+summaries continue independently of job detail failures. A transient GitHub
+502 is **not** mistaken for rate-limit exhaustion.
+
+Repositories with old workflow activity now correctly retain their real
+GitHub activity timestamp: merely discovering a repo for the first time
+does not make it "recently active". This prevents all ~83 repositories being
+forced onto a 60-second poll interval, which previously overloaded the
+one-request-per-second steady-state scheduler. Active repository summary
+requests receive preferential slots, with fair background service.
+
+The repository catalog is also refreshed every 10 minutes, preserving
+existing ETags, state and poll clocks and admitting newly discovered repos
+without resetting the monitor. A failed catalog refresh keeps existing
+monitoring alive.
+
+Queued-run age is displayed as waiting time, **never** compared to a completed
+workflow's execution-duration baseline; queued items cannot be tagged as
+runtime stalls until they actually start.
+
+The dashboard uses different banners for transient API errors, stale live
+status and rate-limit backoff. The `/api/state` JSON endpoint exposes
+`syncStatus`, `oldestLiveSummaryAgeMs`, `oldestRepoSummaryAgeMs`,
+`lastSuccessfulSummaryAtMs`, `rateLimitedUntil` and recent request errors.
+A full repository sweep is complete only after a successful response from
+each repository; attempted-but-failed requests do not count as scanned.
+
 ## Polling behavior
 
 The default policy mirrors CISmon:
