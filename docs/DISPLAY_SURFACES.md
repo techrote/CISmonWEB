@@ -14,6 +14,10 @@ General-purpose desk view. Rows are ordered by CISmon attention priority and ret
 
 Two Focus grids in a single surface. Each pane independently controls repo/workflow/event filters, attention and state visibility, max rows, density, wrapping, field set/order, column widths and sort field/direction. Both share one local monitor response and do not increase GitHub API polling. See [FOCUS_GRID.md](FOCUS_GRID.md).
 
+### Focus Vert
+
+Stacks **two Focus grids by default**, configurable from two to five, with independently selected filters, columns, sorting, density, wrapping and viewport-relative or fixed-pixel pane heights. Every panel has its own scrollable grid and reads the existing /api/state response without further GitHub polling. See [FOCUS_VERT.md](FOCUS_VERT.md).
+
 ### Dense
 
 Ultra-dense table intended for many simultaneous workflows or a large desktop monitor.

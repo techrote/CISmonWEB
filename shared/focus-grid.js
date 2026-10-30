@@ -139,3 +139,50 @@ export function reorderGridFields(fields, dragged, target) {
   result.splice(result.indexOf(target), 0, dragged);
   return result;
 }
+
+
+// Focus Vert uses the same per-pane Focus policy as Focus Dual but allows
+// 2–5 individually sized, vertically stacked panes.
+export const FOCUS_VERT_MIN = 2;
+export const FOCUS_VERT_MAX = 5;
+export const FOCUS_VERT_DEFAULT = 2;
+
+export function normalizeVertCount(input) {
+  const n = Number(input);
+  return Number.isFinite(n)
+    ? Math.max(FOCUS_VERT_MIN, Math.min(FOCUS_VERT_MAX, Math.round(n)))
+    : FOCUS_VERT_DEFAULT;
+}
+
+export function normalizeVertHeight(input = {}, index = 0, count = FOCUS_VERT_DEFAULT) {
+  const unit = input.heightUnit === "px" ? "px" : "vh";
+  const fallback = Math.max(16, Math.floor(86 / normalizeVertCount(count)));
+  const supplied = Number(input.heightValue);
+  const value = Number.isFinite(supplied) && supplied > 0 ? Math.round(supplied) : fallback;
+  return {
+    heightUnit: unit,
+    heightValue: unit === "px"
+      ? Math.max(120, Math.min(1600, value))
+      : Math.max(10, Math.min(100, value))
+  };
+}
+
+export function normalizeVertPanes(input, count = FOCUS_VERT_DEFAULT, parent = {}) {
+  const length = normalizeVertCount(count);
+  const list = Array.isArray(input) ? input : [];
+  return Array.from({ length }, (_, i) => {
+    const pane = list[i] && typeof list[i] === "object" ? list[i] : {};
+    const base = normalizePane({
+      ...pane,
+      name: pane.name ?? (
+        i === 0 ? "Live / Focus" :
+        i === 1 ? "Alerts / History" :
+        "Focus " + (i + 1)
+      ),
+      // Additional panes default to a broad overview instead of repeating
+      // the alert-only second pane's visibility policy.
+      ...(i > 1 && pane.minAttention === undefined ? { minAttention: "normal" } : {})
+    }, i, parent);
+    return { ...base, ...normalizeVertHeight(pane, i, length) };
+  });
+}

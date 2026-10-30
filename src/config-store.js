@@ -15,7 +15,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   activeSurfaceId: "focus",
   surfaces: DEFAULT_SURFACES,
   surfacePresetVersion: FUN_PRESET_VERSION,
-  focusUxVersion: 1
+  focusUxVersion: 2
 });
 
 function normalizePatterns(value) {
@@ -42,9 +42,12 @@ export class ConfigStore {
       if ((parsed.focusUxVersion || 0) < 1 && !migrated.some(p => p.id === "focus-dual")) {
         migrated.push(DEFAULT_SURFACES.find(p => p.id === "focus-dual"));
       }
+      if ((parsed.focusUxVersion || 0) < 2 && !migrated.some(p => p.id === "focus-vert")) {
+        migrated.push(DEFAULT_SURFACES.find(p => p.id === "focus-vert"));
+      }
       this.current = this.normalize({
         ...DEFAULT_CONFIG, ...parsed,
-        focusUxVersion: 1,
+        focusUxVersion: 2,
         surfacePresetVersion: FUN_PRESET_VERSION,
         surfaces: migrated
       });

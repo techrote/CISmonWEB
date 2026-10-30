@@ -1057,3 +1057,55 @@ body.minimal-only .living-surface, body.minimal-only .living-overlay {
 .focus-dual-pane[data-density="ultra"] .focus-grid-cell { padding-block: 3px; font-size: 10px; }
 .focus-dual-pane[data-density="compact"] .focus-grid-cell { padding-block: 5px; }
 .focus-dual-pane[data-density="comfortable"] .focus-grid-cell { padding-block: 9px; font-size: 12px; }
+
+
+/* Focus Vert: 2–5 independently configured stacked Focus grids. Pane height
+   is explicit, either fixed px or a percentage of the actual viewport (vh).
+   Each pane scrolls internally, without clipping the rest of the surface. */
+.dashboard.layout-focus_vert { display: block; }
+.focus-vert {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+.focus-vert-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+.focus-vert-header { flex: 0 0 auto; min-height: 39px; }
+.focus-vert-pane .focus-grid-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  max-height: none;
+  border: 0;
+  overflow-x: auto;
+  overflow-y: auto;
+}
+.focus-vert-pane .focus-pane-empty {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 9px 12px;
+  color: var(--muted);
+  font-size: 11px;
+  border-top: 1px dashed var(--line);
+}
+.focus-vert-pane[data-density="ultra"] .focus-grid-cell { padding-block: 3px; font-size: 10px; }
+.focus-vert-pane[data-density="compact"] .focus-grid-cell { padding-block: 5px; }
+.focus-vert-pane[data-density="comfortable"] .focus-grid-cell { padding-block: 9px; font-size: 12px; }
+body.minimal-only .focus-vert {
+  min-height: 100vh;
+  gap: 3px;
+}
+body.minimal-only .focus-vert-pane .focus-grid-wrap {
+  height: auto;
+  max-height: none;
+}

@@ -1,7 +1,8 @@
-import { DEFAULT_FOCUS_COLUMNS, normalizeDualPanes, normalizeGridFields,
-  normalizeGridSortBy, normalizeGridWidths } from "./focus-grid.js";
+import { DEFAULT_FOCUS_COLUMNS, FOCUS_VERT_DEFAULT, normalizeDualPanes,
+  normalizeGridFields, normalizeGridSortBy, normalizeGridWidths,
+  normalizeVertCount, normalizeVertPanes } from "./focus-grid.js";
 
-const LAYOUTS = new Set(["rows", "cards", "table", "lanes", "focus_dual", "signal", "afterimage", "lanes_plus", "hungry_margins"]);
+const LAYOUTS = new Set(["rows", "cards", "table", "lanes", "focus_dual", "focus_vert", "signal", "afterimage", "lanes_plus", "hungry_margins"]);
 const DENSITIES = new Set(["comfortable", "compact", "ultra"]);
 const MOTIONS = new Set(["off", "subtle", "normal", "intense"]);
 const THEMES = new Set(["dark", "black", "light", "amber", "green"]);
@@ -255,6 +256,34 @@ export const DEFAULT_SURFACES = Object.freeze([
     motion: "off", reactivity: 0, showFunControls: false
   },
   {
+    id: "focus-vert",
+    name: "Focus Vert",
+    layout: "focus_vert",
+    density: "compact",
+    theme: "dark",
+    refreshMs: 2000,
+    maxItems: 64,
+    sort: "priority",
+    groupBy: "none",
+    minAttention: "normal",
+    repositoryPatterns: [], workflowPatterns: [], eventPatterns: [],
+    showInProgress: true, showQueued: true, showSuccess: true,
+    showFailures: true, showOtherCompleted: true,
+    watchedOnly: false, stallsOnly: false,
+    fields: ["stage", "state", "elapsed", "remaining", "confidence"],
+    gridFields: DEFAULT_FOCUS_COLUMNS,
+    gridWidths: {},
+    gridWrap: false,
+    gridSortBy: "priority",
+    gridSortDir: "desc",
+    vertCount: FOCUS_VERT_DEFAULT,
+    vertPanes: [],
+    showTelemetry: true, showSummary: true, showError: true,
+    showAttentionBadge: true, showWatchFlags: true, showStallFlag: true,
+    fullWidth: true, hideChrome: false,
+    motion: "off", reactivity: 0, showFunControls: false
+  },
+  {
     id: "signal-retention",
     name: "Signal Retention",
     layout: "signal",
@@ -385,6 +414,15 @@ export function normalizeSurface(input = {}, index = 0) {
       gridFields: normalizeGridFields(input.gridFields, DEFAULT_FOCUS_COLUMNS),
       gridWrap: input.gridWrap ?? false
     }),
+    vertCount: normalizeVertCount(input.vertCount ?? fallback.vertCount ?? FOCUS_VERT_DEFAULT),
+    vertPanes: normalizeVertPanes(
+      input.vertPanes,
+      input.vertCount ?? fallback.vertCount ?? FOCUS_VERT_DEFAULT,
+      {
+        gridFields: normalizeGridFields(input.gridFields, DEFAULT_FOCUS_COLUMNS),
+        gridWrap: input.gridWrap ?? false
+      }
+    ),
     motion: choice(input.motion, MOTIONS, fallback.motion || "normal"),
     reactivity: integer(input.reactivity, fallback.reactivity ?? 50, 0, 100),
     showFunControls: bool(input.showFunControls, fallback.showFunControls ?? true)
