@@ -368,6 +368,9 @@ function renderSyncHealth(state) {
       formatAge(state.oldestLiveSummaryAgeMs) + " ago. GitHub may have newer queued/running/completed states. Polling continues.";
   } else if (mode === "degraded") {
     warning = "GitHub API requests are degraded; some workflow stages may lag. " +
+      (state.ongoingDetailFailures
+        ? state.ongoingDetailFailures + " active job-detail requests are retrying. "
+        : "") +
       (state.failedInitialScanCount
         ? state.failedInitialScanCount + " repositories have not yet returned a successful workflow summary. "
         : "") +
