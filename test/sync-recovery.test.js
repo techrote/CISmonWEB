@@ -199,3 +199,39 @@ test("the populated empty-state panel must remain hidden", async () => {
   assert.match(html, /id="syncAge"/);
   assert.match(html, /id="syncBanner"/);
 });
+
+
+test("catalog refresh preserves ETags, poll clocks and live states while admitting new repositories", async () => {
+  let failCatalog = false;
+  const m = monitorWithClient(async (path) => {
+    assert.match(path, /^\/user\/repos/);
+    return failCatalog ? response(502) : response(200, [
+      { full_name: "techrote/sandfall" },
+      { full_name: "techrote/new-project" }
+    ]);
+  });
+  m.config = {
+    ...m.config, githubToken: "test", githubOwner: "techrote",
+    includePatterns: [], excludePatterns: [], maxRepositories: 100
+  };
+  const old = repository("techrote/sandfall", {
+    etag: '"old-etag"', lastSuccessAtMs: Date.now() - 4000,
+    nextPollMs: Date.now() + 60000, successfulPollCount: 6,
+    hadActive: true
+  });
+  m.repositories = [old];
+  assert.equal(await m.discoverRepositories(), true);
+  assert.equal(m.repositories.length, 2);
+  assert.equal(m.repositories[0], old);
+  assert.equal(m.repositories[0].etag, '"old-etag"');
+  assert.equal(m.repositories[0].successfulPollCount, 6);
+  assert.deepEqual(m.fastSweepQueue, ["techrote/new-project"]);
+  assert.ok(m.nextDiscoveryMs > Date.now() + 9 * 60000);
+
+  failCatalog = true;
+  assert.equal(await m.discoverRepositories(), false);
+  assert.equal(m.providerReady, true);
+  assert.equal(m.repositories.length, 2);
+  assert.equal(m.repositories[0], old);
+  assert.deepEqual(m.fastSweepQueue, ["techrote/new-project"]);
+});
