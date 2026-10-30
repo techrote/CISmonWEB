@@ -321,6 +321,9 @@ function renderGroups(rows, surface) {
 function renderDashboard(state) {
   latestState = state;
   const surface = activeSurface();
+  // Polling may continue while a user drags a resize divider. Do not destroy
+  // the captured DOM node until the pointer is released.
+  if (gridInteracting && ["rows", "table", "focus_dual"].includes(surface.layout)) return;
   const matchedRows = filterRows(state.rows || [], surface);
   const orderedRows = sortRows(matchedRows, surface);
   const rows = orderedRows.slice(0, surface.maxItems);
@@ -357,7 +360,6 @@ function renderDashboard(state) {
     }
   }
 
-  if (gridInteracting && ["rows", "table", "focus_dual"].includes(surface.layout)) return;
   if (fun) {
     if (!funView || funView.id !== surface.id || funView.layout !== surface.layout) {
       funView?.destroy();
