@@ -104,7 +104,7 @@ function fieldMeta(row, field) {
   switch (field) {
     case "stage": return ["CURRENT STAGE", row.stage || "workflow", ""];
     case "state": return ["STATE", row.state === "completed" ? row.conclusion : row.state, ""];
-    case "elapsed": return ["ELAPSED", formatDuration(row.elapsedMs), ""];
+    case "elapsed": return [row.state === "queued" ? "WAITING" : "ELAPSED", formatDuration(row.elapsedMs), ""];
     case "baseline": return ["MEDIAN", formatDuration(row.baselineMedianMs), row.baselineMedianMs ? row.confidence + " baseline" : "no baseline"];
     case "ratio": return ["RATIO", row.ratio ? row.ratio.toFixed(2) + "×" : "—", row.ratio >= 1.3 ? "above expected" : ""];
     case "remaining": return ["EST. REMAINING", formatDuration(row.estimatedRemainingMs), row.possiblyStalled ? "possible stall" : ""];
