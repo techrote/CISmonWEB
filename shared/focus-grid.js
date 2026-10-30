@@ -122,7 +122,10 @@ export function sortGridRows(rows, by = "priority", direction = "desc") {
   if (by === "priority" || !GRID_FIELD_SET.has(by)) return [...rows];
   const sign = direction === "asc" ? 1 : -1;
   return rows.map((row, index) => ({ row, index })).sort((a, b) => {
-    const x = gridFieldRaw(a.row, by), y = gridFieldRaw(b.row, by);
+    const value = row => by === "attention"
+      ? ({ normal: 0, interesting: 1, suspicious: 2, action_required: 3 }[row.attention] ?? -1)
+      : gridFieldRaw(row, by);
+    const x = value(a.row), y = value(b.row);
     const diff = typeof x === "number" && typeof y === "number"
       ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true });
     return diff * sign || a.index - b.index;
