@@ -1,4 +1,6 @@
 import { isFunLayout } from "/fun-core.js";
+import { createFocusGrid } from "/focus-grid-view.js";
+import { GRID_FIELDS, GRID_DEFAULT_WIDTH, normalizeGridFields, normalizePane } from "/focus-grid.js";
 import { createFunView } from "/fun-surfaces.js";
 import {
   DEFAULT_SURFACES,
@@ -60,6 +62,12 @@ let pollTimer = null;
 let editingSurfaces = [];
 let editingSurfaceId = null;
 let funView = null;
+let gridInteracting = false;
+const gridScroll = new Map();
+let gridSaveQueue = Promise.resolve();
+let editingPaneIndex = 0;
+let minimalOnly = false;
+let localSurfaceOverride = null;
 
 function node(tag, className, text) {
   const el = document.createElement(tag);
@@ -97,7 +105,7 @@ async function api(path, options = {}) {
 
 function activeSurface() {
   const surfaces = config?.surfaces || DEFAULT_SURFACES;
-  return surfaces.find((surface) => surface.id === config?.activeSurfaceId) || surfaces[0];
+  return surfaces.find((surface) => surface.id === (localSurfaceOverride || config?.activeSurfaceId)) || surfaces[0];
 }
 
 function fieldMeta(row, field) {
@@ -107,9 +115,9 @@ function fieldMeta(row, field) {
     case "elapsed": return [row.state === "queued" ? "WAITING" : "ELAPSED", formatDuration(row.elapsedMs), ""];
     case "baseline": return ["MEDIAN", formatDuration(row.baselineMedianMs), row.baselineMedianMs ? row.confidence + " baseline" : "no baseline"];
     case "ratio": return ["RATIO", row.ratio ? row.ratio.toFixed(2) + "×" : "—", row.ratio >= 1.3 ? "above expected" : ""];
-    case "remaining": return ["EST. REMAINING", formatDuration(row.estimatedRemainingMs), row.possiblyStalled ? "possible stall" : ""];
+    case "remaining": return ["ETA", formatDuration(row.estimatedRemainingMs), row.possiblyStalled ? "possible stall" : ""];
     case "branch": return ["BRANCH", row.branch || "—", row.event || ""];
-    case "confidence": return ["CONFIDENCE", row.confidence || "none", row.baselineMedianMs ? "timing model" : ""];
+    case "confidence": return ["CONF", row.confidence || "none", row.baselineMedianMs ? "timing model" : ""];
     default: return [field.toUpperCase(), "—", ""];
   }
 }
@@ -160,6 +168,97 @@ function renderRunCard(row, surface) {
     card.append(cell);
   }
   return card;
+}
+
+
+function saveGridConfig() {
+  const surfaces = config.surfaces;
+  gridSaveQueue = gridSaveQueue.catch(() => {}).then(async () => {
+    const next = await api("/api/display", {
+      method: "PUT",
+      body: JSON.stringify({ surfaces, activeSurfaceId: config.activeSurfaceId })
+    });
+    // The currently shown state may have switched while the request was pending.
+    if (config.surfaces === surfaces) config = next;
+  });
+  gridSaveQueue.catch(error => {
+    elements.errorBanner.hidden = false;
+    elements.errorBanner.textContent = "Unable to persist grid settings: " + error.message;
+  });
+}
+
+function changeGridOptions(paneIndex, changes) {
+  const current = activeSurface();
+  if (!current) return;
+  let next = { ...current };
+  if (paneIndex >= 0) {
+    const panes = structuredClone(current.dualPanes);
+    panes[paneIndex] = { ...panes[paneIndex], ...changes };
+    next.dualPanes = panes;
+  } else {
+    next = { ...next, ...changes };
+  }
+  config = { ...config, surfaces: config.surfaces.map(p => p.id === current.id ? next : p) };
+  saveGridConfig();
+  if (latestState && !gridInteracting) renderDashboard(latestState);
+}
+
+function gridCallbacks(surface, paneIndex = -1) {
+  const key = surface.id + ":" + paneIndex;
+  return {
+    onOpen: openDetail,
+    onInteracting: value => { gridInteracting = value; },
+    getScroll: () => gridScroll.get(key) || 0,
+    onScroll: value => gridScroll.set(key, value),
+    onWidth: (field, width) => {
+      const target = paneIndex < 0 ? activeSurface() : activeSurface().dualPanes[paneIndex];
+      changeGridOptions(paneIndex, {
+        gridWidths: { ...target.gridWidths, [field]: width }
+      });
+    },
+    onSort: (field, direction) => changeGridOptions(paneIndex, {
+      gridSortBy: field, gridSortDir: direction
+    }),
+    onReorder: fields => changeGridOptions(paneIndex, { gridFields: fields })
+  };
+}
+
+function focusDualRows(all, pane, parent, index) {
+  const filters = {
+    ...parent, ...pane,
+    // The pane controls its own status and attention filters.
+    repositoryPatterns: pane.repositoryPatterns,
+    workflowPatterns: pane.workflowPatterns,
+    eventPatterns: pane.eventPatterns
+  };
+  return sortRows(filterRows(all, filters), { ...filters, sort: "priority" })
+    .slice(0, pane.maxItems);
+}
+
+function renderFocusDual(all, surface) {
+  const root = node("section", "focus-dual");
+  let visible = 0;
+  const displayed = [];
+  surface.dualPanes.forEach((pane, index) => {
+    const section = node("section", "focus-dual-pane");
+    section.dataset.density = pane.density || surface.density;
+    const selected = focusDualRows(all, pane, surface, index);
+    visible += selected.length;
+    displayed.push(...selected);
+    const title = node("header", "focus-dual-header");
+    title.append(
+      node("strong", "", pane.name),
+      node("small", "", selected.length + " displayed")
+    );
+    section.append(title, createFocusGrid(
+      selected,
+      { ...surface, ...pane },
+      gridCallbacks(surface, index),
+      surface.name + " / " + pane.name
+    ));
+    root.append(section);
+  });
+  return { root, visible, displayed };
 }
 
 function renderTable(rows, surface) {
@@ -226,9 +325,13 @@ function renderGroups(rows, surface) {
 function renderDashboard(state) {
   latestState = state;
   const surface = activeSurface();
+  // Polling may continue while a user drags a resize divider. Do not destroy
+  // the captured DOM node until the pointer is released.
+  if (gridInteracting && ["rows", "table", "focus_dual"].includes(surface.layout)) return;
   const matchedRows = filterRows(state.rows || [], surface);
   const orderedRows = sortRows(matchedRows, surface);
   const rows = orderedRows.slice(0, surface.maxItems);
+  let displayedRows = rows;
 
   elements.visibleCount.textContent =
     matchedRows.length > rows.length ? rows.length + "/" + matchedRows.length : String(rows.length);
@@ -271,21 +374,27 @@ function renderDashboard(state) {
       funView.mount();
     }
     funView.update(rows, state, surface);
-  } else if (surface.layout === "table") {
-    elements.dashboard.append(renderTable(rows, surface));
+  } else if (surface.layout === "focus_dual") {
+    const { root, visible, displayed } = renderFocusDual(state.rows || [], surface);
+    elements.dashboard.append(root);
+    elements.visibleCount.textContent = String(visible);
+    displayedRows = displayed;
+    elements.emptyState.hidden = true;
+  } else if (surface.layout === "table" || surface.layout === "rows") {
+    elements.dashboard.append(createFocusGrid(rows, surface, gridCallbacks(surface), surface.name));
   } else {
     elements.dashboard.append(renderGroups(rows, surface));
   }
 
   const counts = {
-    active: rows.filter((row) => row.state === "in_progress").length,
-    queued: rows.filter((row) => row.state === "queued").length,
-    alerts: rows.filter((row) => row.attention === "action_required").length,
-    suspicious: rows.filter((row) => row.attention === "suspicious").length
+    active: displayedRows.filter((row) => row.state === "in_progress").length,
+    queued: displayedRows.filter((row) => row.state === "queued").length,
+    alerts: displayedRows.filter((row) => row.attention === "action_required").length,
+    suspicious: displayedRows.filter((row) => row.attention === "suspicious").length
   };
   elements.surfaceSummary.textContent =
-    rows.length + " shown" +
-    (matchedRows.length > rows.length ? " of " + matchedRows.length + " matching" : "") +
+    displayedRows.length + " shown" +
+    (surface.layout !== "focus_dual" && matchedRows.length > rows.length ? " of " + matchedRows.length + " matching" : "") +
     " · " + counts.active + " running · " + counts.queued +
     " queued · " + counts.suspicious + " suspicious · " + counts.alerts + " action required";
 }
@@ -296,7 +405,9 @@ function applySurfaceVisuals() {
   document.body.dataset.density = surface.density;
   document.body.classList.toggle("surface-hide-chrome", surface.hideChrome);
   document.body.classList.toggle("surface-hide-topbar", surface.hideChrome && !surface.showTelemetry);
-  elements.main.classList.toggle("full-width", surface.fullWidth);
+  elements.main.classList.toggle("full-width", surface.fullWidth || minimalOnly);
+  document.body.classList.toggle("minimal-only", minimalOnly);
+  $("#exitBorderlessButton").hidden = !minimalOnly;
   elements.telemetry.hidden = !surface.showTelemetry;
   elements.summaryStrip.hidden = !surface.showSummary;
   elements.surfaceBar.hidden = surface.hideChrome;
@@ -310,7 +421,7 @@ function applySurfaceVisuals() {
 function renderSurfaceTabs() {
   elements.surfaceTabs.replaceChildren();
   for (const surface of config.surfaces) {
-    const button = node("button", "surface-tab" + (surface.id === config.activeSurfaceId ? " active" : ""), surface.name);
+    const button = node("button", "surface-tab" + (surface.id === (localSurfaceOverride || config.activeSurfaceId) ? " active" : ""), surface.name);
     button.type = "button";
     button.dataset.surfaceId = surface.id;
     button.addEventListener("click", () => switchSurface(surface.id));
@@ -320,8 +431,8 @@ function renderSurfaceTabs() {
 
 async function switchSurface(surfaceId) {
   if (!config.surfaces.some((surface) => surface.id === surfaceId)) return;
-  config.activeSurfaceId = surfaceId;
-  try {
+  localSurfaceOverride = surfaceId;
+  if (!minimalOnly) try {
     config = await api("/api/display", {
       method: "PUT",
       body: JSON.stringify({ activeSurfaceId: surfaceId })
@@ -579,8 +690,113 @@ function updateSurfaceEditorSelect(selectedId) {
   }
 }
 
+
+function fillSortOptions(select) {
+  select.replaceChildren();
+  for (const [id, label] of [["priority", "CI priority"], ...GRID_FIELDS.map(([key, title]) => [key, title])]) {
+    const option = node("option", "", label);
+    option.value = id;
+    select.append(option);
+  }
+}
+
+function writeFieldEditor(selector, fields) {
+  const container = $(selector);
+  container.replaceChildren();
+  const ordered = normalizeGridFields(fields);
+  const order = [...ordered, ...GRID_FIELDS.map(([id]) => id).filter(id => !ordered.includes(id))];
+  for (const field of order) {
+    const label = node("label", "grid-field-chip");
+    label.draggable = true;
+    label.dataset.field = field;
+    const checkbox = node("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = ordered.includes(field);
+    checkbox.dataset.gridField = field;
+    label.append(checkbox, node("span", "", GRID_FIELDS.find(([key]) => key === field)?.[1] || field));
+    label.addEventListener("dragstart", event => {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", field);
+    });
+    label.addEventListener("dragover", event => event.preventDefault());
+    label.addEventListener("drop", event => {
+      event.preventDefault();
+      const dragged = event.dataTransfer.getData("text/plain");
+      const source = [...container.children].find(el => el.dataset.field === dragged);
+      if (source && source !== label) container.insertBefore(source, label);
+    });
+    container.append(label);
+  }
+}
+function readFieldEditor(selector) {
+  return [...$(selector).querySelectorAll(".grid-field-chip")]
+    .filter(chip => chip.querySelector("input").checked)
+    .map(chip => chip.dataset.field);
+}
+
+function writePaneForm(pane) {
+  $("#dualPaneName").value = pane.name;
+  $("#dualPaneSort").value = pane.gridSortBy;
+  $("#dualPaneDirection").value = pane.gridSortDir;
+  $("#dualPaneMax").value = pane.maxItems;
+  $("#dualPaneDensity").value = pane.density || "compact";
+  $("#dualPaneAttention").value = pane.minAttention;
+  $("#dualPaneWrap").checked = pane.gridWrap;
+  $("#dualPaneRepositories").value = pane.repositoryPatterns.join("\n");
+  $("#dualPaneWorkflows").value = pane.workflowPatterns.join("\n");
+  $("#dualPaneEvents").value = pane.eventPatterns.join("\n");
+  for (const [key, selector] of Object.entries({
+    showInProgress:"dualPaneRunning",showQueued:"dualPaneQueued",
+    showSuccess:"dualPaneSuccess",showFailures:"dualPaneFailures",
+    showOtherCompleted:"dualPaneOther",watchedOnly:"dualPaneWatched",stallsOnly:"dualPaneStalls"
+  })) $("#"+selector).checked = pane[key];
+  writeFieldEditor("#dualGridFieldEditor", pane.gridFields);
+}
+function commitPaneForm() {
+  const surface = editingSurfaces.find(item => item.id === editingSurfaceId);
+  if (!surface || $("#dualPaneSection").hidden) return;
+  const list = [...surface.dualPanes];
+  const original = list[editingPaneIndex];
+  const value = {
+    ...original,
+    name: $("#dualPaneName").value,
+    gridSortBy: $("#dualPaneSort").value,
+    gridSortDir: $("#dualPaneDirection").value,
+    maxItems: Number($("#dualPaneMax").value),
+    density: $("#dualPaneDensity").value,
+    minAttention: $("#dualPaneAttention").value,
+    gridWrap: $("#dualPaneWrap").checked,
+    repositoryPatterns: $("#dualPaneRepositories").value,
+    workflowPatterns: $("#dualPaneWorkflows").value,
+    eventPatterns: $("#dualPaneEvents").value,
+    showInProgress: $("#dualPaneRunning").checked,
+    showQueued: $("#dualPaneQueued").checked,
+    showSuccess: $("#dualPaneSuccess").checked,
+    showFailures: $("#dualPaneFailures").checked,
+    showOtherCompleted: $("#dualPaneOther").checked,
+    watchedOnly: $("#dualPaneWatched").checked,
+    stallsOnly: $("#dualPaneStalls").checked,
+    gridFields: readFieldEditor("#dualGridFieldEditor")
+  };
+  list[editingPaneIndex] = normalizePane(value, editingPaneIndex, surface);
+  surface.dualPanes = list;
+}
+function updateDualSection(surface) {
+  $("#dualPaneSection").hidden = surface.layout !== "focus_dual";
+  $("#focusGridSection").hidden = !["rows","table","focus_dual"].includes(surface.layout);
+  if (surface.layout === "focus_dual") {
+    $("#dualPaneSelect").value = String(editingPaneIndex);
+    writePaneForm(surface.dualPanes[editingPaneIndex]);
+  }
+}
+
 function writeSurfaceForm(surface) {
   $("#surfaceName").value = surface.name;
+  $("#surfaceGridWrap").checked = surface.gridWrap;
+  $("#surfaceGridSort").value = surface.gridSortBy;
+  $("#surfaceGridDirection").value = surface.gridSortDir;
+  writeFieldEditor("#gridFieldEditor", surface.gridFields);
+  updateDualSection(surface);
   $("#surfaceLayout").value = surface.layout;
   $("#surfaceDensity").value = surface.density;
   $("#surfaceTheme").value = surface.theme;
@@ -621,6 +837,10 @@ function readSurfaceForm(existing) {
     ...existing,
     name: $("#surfaceName").value,
     layout: $("#surfaceLayout").value,
+    gridWrap: $("#surfaceGridWrap").checked,
+    gridSortBy: $("#surfaceGridSort").value,
+    gridSortDir: $("#surfaceGridDirection").value,
+    gridFields: readFieldEditor("#gridFieldEditor"),
     density: $("#surfaceDensity").value,
     theme: $("#surfaceTheme").value,
     refreshMs: Number($("#surfaceRefreshMs").value),
@@ -655,6 +875,7 @@ function readSurfaceForm(existing) {
 
 function commitEditorFormToDraft() {
   if (!editingSurfaceId) return;
+  commitPaneForm();
   const index = editingSurfaces.findIndex((surface) => surface.id === editingSurfaceId);
   if (index < 0) return;
   editingSurfaces[index] = readSurfaceForm(editingSurfaces[index]);
@@ -664,6 +885,7 @@ function selectEditorSurface(id) {
   const surface = editingSurfaces.find((candidate) => candidate.id === id) || editingSurfaces[0];
   if (!surface) return;
   editingSurfaceId = surface.id;
+  editingPaneIndex = 0;
   updateSurfaceEditorSelect(surface.id);
   writeSurfaceForm(surface);
 }
@@ -685,6 +907,25 @@ function uniqueSurfaceId(base) {
   while (ids.has(stem + "-" + suffix)) suffix += 1;
   return stem + "-" + suffix;
 }
+
+$("#dualPaneSelect").addEventListener("change", () => {
+  const next = Number($("#dualPaneSelect").value);
+  commitPaneForm();
+  editingPaneIndex = next;
+  const surface = editingSurfaces.find(x => x.id === editingSurfaceId);
+  if (surface) writePaneForm(surface.dualPanes[next]);
+});
+$("#surfaceLayout").addEventListener("change", () => {
+  const current = editingSurfaces.find(x => x.id === editingSurfaceId);
+  if (!current) return;
+  // Commit the outgoing pane before hiding its editor.
+  commitPaneForm();
+  $("#dualPaneSection").hidden = $("#surfaceLayout").value !== "focus_dual";
+  if (!$("#dualPaneSection").hidden) {
+    $("#dualPaneSelect").value = String(editingPaneIndex);
+    writePaneForm(current.dualPanes[editingPaneIndex]);
+  }
+});
 
 elements.surfaceEditorSelect.addEventListener("change", () => {
   const nextId = elements.surfaceEditorSelect.value;
@@ -816,6 +1057,27 @@ $("#refreshButton").addEventListener("click", async () => {
   }
 });
 
+
+function setMinimalSurface(value) {
+  minimalOnly = !!value;
+  const url = new URL(location.href);
+  if (minimalOnly) url.searchParams.set("minimal", "1");
+  else url.searchParams.delete("minimal");
+  history.replaceState(null, "", url);
+  applySurfaceVisuals();
+}
+$("#borderlessButton").addEventListener("click", () => setMinimalSurface(true));
+$("#exitBorderlessButton").addEventListener("click", () => setMinimalSurface(false));
+$("#popupButton").addEventListener("click", () => {
+  const url = new URL(location.href);
+  url.searchParams.set("surface", activeSurface().id);
+  url.searchParams.set("minimal", "1");
+  // Browser/toolbars/OS decoration are controlled by Firefox, not page CSS.
+  // popup=yes is advisory; deliberately do not call this outside a user click.
+  window.open(url.href, "CISmonWEB_Surface",
+    "popup=yes,toolbar=no,location=no,menubar=no,status=no,resizable=yes,scrollbars=yes,width=1160,height=760");
+});
+
 $("#fullscreenButton").addEventListener("click", async () => {
   if (document.fullscreenElement) await document.exitFullscreen();
   else await document.documentElement.requestFullscreen();
@@ -831,13 +1093,21 @@ for (const button of $$("[data-close]")) {
 elements.detailDialog.addEventListener("close", () => { selectedRun = null; });
 
 async function boot() {
+  fillSortOptions($("#surfaceGridSort"));
+  fillSortOptions($("#dualPaneSort"));
+  const query = new URL(location.href).searchParams;
+  minimalOnly = query.get("minimal") === "1";
   config = await api("/api/config");
   const requested = new URL(window.location.href).searchParams.get("surface");
-  if (requested && config.surfaces.some((surface) => surface.id === requested) && requested !== config.activeSurfaceId) {
-    config = await api("/api/display", {
-      method: "PUT",
-      body: JSON.stringify({ activeSurfaceId: requested })
-    });
+  if (requested && config.surfaces.some((surface) => surface.id === requested)) {
+    localSurfaceOverride = requested;
+    // Popup windows must not hijack the main window's active surface.
+    if (!minimalOnly && requested !== config.activeSurfaceId) {
+      config = await api("/api/display", {
+        method: "PUT",
+        body: JSON.stringify({ activeSurfaceId: requested })
+      });
+    }
   }
   renderSurfaceTabs();
   applySurfaceVisuals();

@@ -15,6 +15,7 @@ function applyAnalysis(item, analysis) {
     item.baselineMedianMs = Math.round(analysis.baseline.median);
     item.estimatedRemainingMs = analysis.estimatedRemainingMs;
     item.ratio = analysis.ratio;
+    item.baselineSamples = analysis.baseline.samples;
   }
 }
 
@@ -49,6 +50,9 @@ export function buildDashboard(
       stage: "",
       runId: run.runId,
       runNumber: run.runNumber,
+      createdAtEpoch: run.createdAtEpoch || run.startedAtEpoch || 0,
+      updatedAtEpoch: run.updatedAtEpoch || 0,
+      baselineSamples: 0,
       branch: run.branch,
       event: run.event,
       headSha: run.headSha,
