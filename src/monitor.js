@@ -462,6 +462,7 @@ export class Monitor {
       .map(repo => nowMs - repo.lastSuccessAtMs);
     const oldestRepoSummaryAgeMs = ages.length ? Math.max(...ages) : null;
     const oldestLiveSummaryAgeMs = liveAges.length ? Math.max(...liveAges) : null;
+    const ongoingDetailFailures = this.activeDetailErrors.size;
     const freshError = this.lastError && nowMs - this.lastErrorAtMs < ERROR_VISIBLE_MS;
     const rateLimited = nowMs < this.rateLimitedUntilMs;
     const syncStatus = rateLimited ? "rate_limited" :
@@ -471,7 +472,7 @@ export class Monitor {
         ? "scanning" :
       failedInitialScanCount > 0 ? "degraded" :
       oldestLiveSummaryAgeMs !== null && oldestLiveSummaryAgeMs > LIVE_FRESHNESS_WARNING_MS ? "stale" :
-      freshError ? "degraded" : "online";
+      (ongoingDetailFailures > 0 || freshError) ? "degraded" : "online";
     const trackedActiveCount = tracked.filter((run) => run.snapshot.state === RunState.InProgress).length;
     const trackedQueuedCount = tracked.filter((run) => run.snapshot.state === RunState.Queued).length;
     const trackedCompletedCount = tracked.filter((run) => run.snapshot.state === RunState.Completed).length;
@@ -494,6 +495,7 @@ export class Monitor {
       lastSuccessfulSummaryAtMs: this.lastSuccessfulSummaryAtMs,
       syncStatus,
       recentRequestErrors: this.recentRequestErrors,
+      ongoingDetailFailures,
       pendingSweepCount: this.fastSweepQueue.length,
       sweepReason: this.fastSweepReason,
       dueRepositoryCount,
