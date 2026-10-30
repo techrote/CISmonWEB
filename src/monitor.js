@@ -21,6 +21,7 @@ const ACTIVE_DETAIL_BURST_LIMIT = 1;
 const MAX_LIVE_REPO_BURST = 2;
 const ERROR_VISIBLE_MS = 90000;
 const LIVE_FRESHNESS_WARNING_MS = 90000;
+const REPOSITORY_CATALOG_REFRESH_MS = 10 * 60 * 1000;
 const DASHBOARD_CANDIDATE_LIMIT = 4096;
 const TERMINAL_IMPORT_LOOKBACK_MS = 3600000;
 
@@ -138,37 +139,43 @@ export class Monitor {
     }
 
     const response = await this.client.get("/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member");
-    this.updateRate(response, nowMs);
+    this.updateRate(response, Date.now());
     if (!response.ok || !Array.isArray(response.json)) {
-      this.providerReady = false;
+      // A transient repository-list failure must not discard previously
+      // discovered repositories, live run states, ETags, or poll scheduling.
+      this.providerReady = this.repositories.length > 0;
       this.reportFailure("repository discovery", response, Date.now());
       return false;
     }
 
-    this.repositories = response.json
+    const previous = new Map(this.repositories.map((repo) => [repo.fullName, repo]));
+    const names = response.json
       .map((repo) => repo.full_name)
       .filter((name) => name && this.repositoryAllowed(name))
-      .slice(0, this.config.maxRepositories)
-      .map((fullName) => ({
-        fullName,
-        etag: "",
-        errors: 0,
-        nextPollMs: 0,
-        lastPollMs: 0,
-        pollCount: 0,
-        successfulPollCount: 0,
-        lastSuccessAtMs: 0,
-        lastResponseStatus: 0,
-        lastActivityMs: 0,
-        latestUpdatedEpoch: 0,
-        hadActive: false,
-        hadQueued: false
-      }));
-
+      .slice(0, this.config.maxRepositories);
+    const added = [];
+    this.repositories = names.map((fullName) => {
+      if (previous.has(fullName)) return previous.get(fullName);
+      added.push(fullName);
+      return {
+        fullName, etag: "", errors: 0, nextPollMs: 0,
+        lastPollMs: 0, pollCount: 0, successfulPollCount: 0,
+        lastSuccessAtMs: 0, lastResponseStatus: 0,
+        lastActivityMs: 0, latestUpdatedEpoch: 0,
+        hadActive: false, hadQueued: false
+      };
+    });
     this.providerReady = this.repositories.length > 0;
+    this.nextDiscoveryMs = Date.now() + REPOSITORY_CATALOG_REFRESH_MS;
     if (this.providerReady) this.clearFailure("repository discovery");
     else this.reportFailure("repository discovery", { error: "no matching repositories" }, Date.now());
-    if (this.providerReady) this.startFastSweep("startup");
+    if (this.providerReady && previous.size === 0) {
+      this.startFastSweep("startup");
+    } else if (added.length) {
+      const queued = new Set(this.fastSweepQueue);
+      this.fastSweepQueue.push(...added.filter((name) => !queued.has(name)));
+      this.fastSweepReason = "new repositories";
+    }
     return this.providerReady;
   }
 
@@ -354,6 +361,12 @@ export class Monitor {
 
     this.busy = true;
     try {
+      if (nowMs >= this.nextDiscoveryMs) {
+        await this.discoverRepositories();
+        this.lastSchedulerAction = "repository-catalog";
+        this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
+        return;
+      }
       if (this.fastSweepQueue.length) {
         await this.pollFastSweep(nowMs);
         return;
