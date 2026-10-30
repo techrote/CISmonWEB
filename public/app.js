@@ -735,6 +735,7 @@ function writePaneForm(pane) {
   $("#dualPaneSort").value = pane.gridSortBy;
   $("#dualPaneDirection").value = pane.gridSortDir;
   $("#dualPaneMax").value = pane.maxItems;
+  $("#dualPaneDensity").value = pane.density || "compact";
   $("#dualPaneAttention").value = pane.minAttention;
   $("#dualPaneWrap").checked = pane.gridWrap;
   $("#dualPaneRepositories").value = pane.repositoryPatterns.join("\n");
