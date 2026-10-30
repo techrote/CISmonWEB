@@ -759,6 +759,7 @@ function commitPaneForm() {
     gridSortBy: $("#dualPaneSort").value,
     gridSortDir: $("#dualPaneDirection").value,
     maxItems: Number($("#dualPaneMax").value),
+    density: $("#dualPaneDensity").value,
     minAttention: $("#dualPaneAttention").value,
     gridWrap: $("#dualPaneWrap").checked,
     repositoryPatterns: $("#dualPaneRepositories").value,
