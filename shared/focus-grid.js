@@ -73,6 +73,7 @@ export function normalizePane(input = {}, index = 0, parent = {}) {
     watchedOnly: boolean(input.watchedOnly, false),
     stallsOnly: boolean(input.stallsOnly, false),
     maxItems: limited(input.maxItems, left ? 40 : 24),
+    density: ["comfortable", "compact", "ultra"].includes(input.density) ? input.density : "compact",
     gridFields: normalizeGridFields(input.gridFields, parent.gridFields || DEFAULT_FOCUS_COLUMNS),
     gridWidths: normalizeGridWidths(input.gridWidths),
     gridWrap: boolean(input.gridWrap, parent.gridWrap ?? false),
