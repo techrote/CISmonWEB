@@ -15,6 +15,7 @@ function applyAnalysis(item, analysis) {
     item.baselineMedianMs = Math.round(analysis.baseline.median);
     item.estimatedRemainingMs = analysis.estimatedRemainingMs;
     item.ratio = analysis.ratio;
+    item.baselineSamples = analysis.baseline.samples;
   }
 }
 
