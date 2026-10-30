@@ -238,11 +238,13 @@ function focusDualRows(all, pane, parent, index) {
 function renderFocusDual(all, surface) {
   const root = node("section", "focus-dual");
   let visible = 0;
+  const displayed = [];
   surface.dualPanes.forEach((pane, index) => {
     const section = node("section", "focus-dual-pane");
     section.dataset.density = pane.density || surface.density;
     const selected = focusDualRows(all, pane, surface, index);
     visible += selected.length;
+    displayed.push(...selected);
     const title = node("header", "focus-dual-header");
     title.append(
       node("strong", "", pane.name),
@@ -256,7 +258,7 @@ function renderFocusDual(all, surface) {
     ));
     root.append(section);
   });
-  return { root, visible };
+  return { root, visible, displayed };
 }
 
 function renderTable(rows, surface) {
@@ -329,6 +331,7 @@ function renderDashboard(state) {
   const matchedRows = filterRows(state.rows || [], surface);
   const orderedRows = sortRows(matchedRows, surface);
   const rows = orderedRows.slice(0, surface.maxItems);
+  let displayedRows = rows;
 
   elements.visibleCount.textContent =
     matchedRows.length > rows.length ? rows.length + "/" + matchedRows.length : String(rows.length);
@@ -372,9 +375,10 @@ function renderDashboard(state) {
     }
     funView.update(rows, state, surface);
   } else if (surface.layout === "focus_dual") {
-    const { root, visible } = renderFocusDual(state.rows || [], surface);
+    const { root, visible, displayed } = renderFocusDual(state.rows || [], surface);
     elements.dashboard.append(root);
     elements.visibleCount.textContent = String(visible);
+    displayedRows = displayed;
     elements.emptyState.hidden = true;
   } else if (surface.layout === "table" || surface.layout === "rows") {
     elements.dashboard.append(createFocusGrid(rows, surface, gridCallbacks(surface), surface.name));
@@ -383,14 +387,14 @@ function renderDashboard(state) {
   }
 
   const counts = {
-    active: rows.filter((row) => row.state === "in_progress").length,
-    queued: rows.filter((row) => row.state === "queued").length,
-    alerts: rows.filter((row) => row.attention === "action_required").length,
-    suspicious: rows.filter((row) => row.attention === "suspicious").length
+    active: displayedRows.filter((row) => row.state === "in_progress").length,
+    queued: displayedRows.filter((row) => row.state === "queued").length,
+    alerts: displayedRows.filter((row) => row.attention === "action_required").length,
+    suspicious: displayedRows.filter((row) => row.attention === "suspicious").length
   };
   elements.surfaceSummary.textContent =
-    rows.length + " shown" +
-    (matchedRows.length > rows.length ? " of " + matchedRows.length + " matching" : "") +
+    displayedRows.length + " shown" +
+    (surface.layout !== "focus_dual" && matchedRows.length > rows.length ? " of " + matchedRows.length + " matching" : "") +
     " · " + counts.active + " running · " + counts.queued +
     " queued · " + counts.suspicious + " suspicious · " + counts.alerts + " action required";
 }
