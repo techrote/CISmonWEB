@@ -74,7 +74,8 @@ test("local server serves animation assets and migrates legacy profiles without 
     ]);
 
     for (const asset of ["/fun-core.js", "/fun-engine.js", "/fun-surfaces.js",
-      "/hungry-ci.js", "/hungry-frame-engine.js"]) {
+      "/hungry-ci.js", "/hungry-frame-engine.js",
+      "/focus-grid.js", "/focus-grid-view.js"]) {
       const response = await fetch(running.base + asset);
       assert.equal(response.status, 200, asset);
       assert.match(response.headers.get("content-type"), /javascript/);
