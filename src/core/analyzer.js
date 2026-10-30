@@ -81,11 +81,23 @@ export class RuntimeAnalyzer {
   }
 
   analyzeRun(run, nowEpoch) {
+    const elapsed = elapsedMs(
+      run.startedAtEpoch,
+      run.state === RunState.Completed ? run.updatedAtEpoch : 0,
+      nowEpoch
+    );
+    if (run.state === RunState.Queued) {
+      // Queue wait is NOT execution time. Never compare it with a completed
+      // run's duration baseline or declare a queued workflow "stalled".
+      const result = this.analyze(baselineKey.run(run), 0, false, Conclusion.Unknown);
+      result.elapsedMs = elapsed;
+      result.estimatedRemainingMs = 0;
+      result.reason = "queued; execution has not started";
+      return result;
+    }
     return this.analyze(
-      baselineKey.run(run),
-      elapsedMs(run.startedAtEpoch, run.state === RunState.Completed ? run.updatedAtEpoch : 0, nowEpoch),
-      run.state === RunState.Completed,
-      run.conclusion,
+      baselineKey.run(run), elapsed,
+      run.state === RunState.Completed, run.conclusion
     );
   }
 
