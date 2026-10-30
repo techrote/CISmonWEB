@@ -1,4 +1,7 @@
-const LAYOUTS = new Set(["rows", "cards", "table", "lanes", "signal", "afterimage", "lanes_plus", "hungry_margins"]);
+import { DEFAULT_FOCUS_COLUMNS, normalizeDualPanes, normalizeGridFields,
+  normalizeGridSortBy, normalizeGridWidths } from "./focus-grid.js";
+
+const LAYOUTS = new Set(["rows", "cards", "table", "lanes", "focus_dual", "signal", "afterimage", "lanes_plus", "hungry_margins"]);
 const DENSITIES = new Set(["comfortable", "compact", "ultra"]);
 const MOTIONS = new Set(["off", "subtle", "normal", "intense"]);
 const THEMES = new Set(["dark", "black", "light", "amber", "green"]);
@@ -62,7 +65,12 @@ export const DEFAULT_SURFACES = Object.freeze([
     showWatchFlags: true,
     showStallFlag: true,
     fullWidth: false,
-    hideChrome: false
+    hideChrome: false,
+    gridFields: DEFAULT_FOCUS_COLUMNS,
+    gridWidths: {},
+    gridWrap: false,
+    gridSortBy: "priority",
+    gridSortDir: "desc"
   },
   {
     id: "dense",
@@ -220,6 +228,33 @@ export const DEFAULT_SURFACES = Object.freeze([
     hideChrome: false
   },
   {
+    id: "focus-dual",
+    name: "Focus Dual",
+    layout: "focus_dual",
+    density: "compact",
+    theme: "dark",
+    refreshMs: 2000,
+    maxItems: 64,
+    sort: "priority",
+    groupBy: "none",
+    minAttention: "normal",
+    repositoryPatterns: [], workflowPatterns: [], eventPatterns: [],
+    showInProgress: true, showQueued: true, showSuccess: true,
+    showFailures: true, showOtherCompleted: true,
+    watchedOnly: false, stallsOnly: false,
+    fields: ["stage", "state", "elapsed", "remaining", "confidence"],
+    gridFields: DEFAULT_FOCUS_COLUMNS,
+    gridWidths: {},
+    gridWrap: false,
+    gridSortBy: "priority",
+    gridSortDir: "desc",
+    dualPanes: [],
+    showTelemetry: true, showSummary: true, showError: true,
+    showAttentionBadge: true, showWatchFlags: true, showStallFlag: true,
+    fullWidth: true, hideChrome: false,
+    motion: "off", reactivity: 0, showFunControls: false
+  },
+  {
     id: "signal-retention",
     name: "Signal Retention",
     layout: "signal",
@@ -340,6 +375,16 @@ export function normalizeSurface(input = {}, index = 0) {
     showStallFlag: bool(input.showStallFlag, fallback.showStallFlag),
     fullWidth: bool(input.fullWidth, fallback.fullWidth),
     hideChrome: bool(input.hideChrome, fallback.hideChrome),
+    gridFields: normalizeGridFields(input.gridFields,
+      fallback.gridFields || DEFAULT_FOCUS_COLUMNS),
+    gridWidths: normalizeGridWidths(input.gridWidths),
+    gridWrap: bool(input.gridWrap, fallback.gridWrap ?? false),
+    gridSortBy: normalizeGridSortBy(input.gridSortBy ?? fallback.gridSortBy),
+    gridSortDir: input.gridSortDir === "asc" ? "asc" : "desc",
+    dualPanes: normalizeDualPanes(input.dualPanes, {
+      gridFields: normalizeGridFields(input.gridFields, DEFAULT_FOCUS_COLUMNS),
+      gridWrap: input.gridWrap ?? false
+    }),
     motion: choice(input.motion, MOTIONS, fallback.motion || "normal"),
     reactivity: integer(input.reactivity, fallback.reactivity ?? 50, 0, 100),
     showFunControls: bool(input.showFunControls, fallback.showFunControls ?? true)
