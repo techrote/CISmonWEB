@@ -198,6 +198,7 @@
                 <option value="cards">Cards</option>
                 <option value="table">Dense table</option>
                 <option value="focus_dual">Focus Dual (two independent grids)</option>
+                <option value="focus_vert">Focus Vert (2–5 stacked grids)</option>
                 <option value="lanes">Lanes</option>
                 <option value="signal">Signal Retention</option>
                 <option value="afterimage">Afterimage Debt</option>
@@ -371,7 +372,16 @@
         </section>
 
         <section class="form-section" id="dualPaneSection" hidden>
-          <h3>Focus Dual · independent pane settings</h3>
+          <h3 id="paneEditorTitle">Focus Dual · independent pane settings</h3>
+          <label class="field" id="vertPaneCountGroup" hidden>
+            <span>Number of stacked Focus panes (2–5)</span>
+            <select id="vertPaneCount">
+              <option value="2">2 panes</option>
+              <option value="3">3 panes</option>
+              <option value="4">4 panes</option>
+              <option value="5">5 panes</option>
+            </select>
+          </label>
           <label class="compact-field">
             <span>Editing pane</span>
             <select id="dualPaneSelect">
@@ -379,6 +389,18 @@
               <option value="1">Right pane</option>
             </select>
           </label>
+          <div class="form-grid three" id="vertPaneHeightGroup" hidden>
+            <label class="field"><span>Pane height mode</span>
+              <select id="vertPaneHeightUnit">
+                <option value="vh">Window height (%)</option>
+                <option value="px">Fixed height (pixels)</option>
+              </select>
+            </label>
+            <label class="field"><span>Height value</span>
+              <input id="vertPaneHeightValue" type="number" min="10" max="100" step="1">
+              <small>vh = percent of browser viewport height. Fixed px: 120–1600.</small>
+            </label>
+          </div>
           <div class="form-grid three">
             <label class="field"><span>Pane name</span><input id="dualPaneName" maxlength="50"></label>
             <label class="field"><span>Sort by</span><select id="dualPaneSort"></select></label>
