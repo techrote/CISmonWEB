@@ -149,8 +149,11 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
   }
   table.append(body);
   wrap.append(table);
-  const initial = callbacks.getScroll?.() || 0;
-  wrap.scrollLeft = initial;
-  wrap.addEventListener("scroll", () => callbacks.onScroll?.(wrap.scrollLeft), { passive: true });
+  wrap.scrollLeft = callbacks.getScroll?.() || 0;
+  wrap.scrollTop = callbacks.getScrollTop?.() || 0;
+  wrap.addEventListener("scroll", () => {
+    callbacks.onScroll?.(wrap.scrollLeft);
+    callbacks.onScrollTop?.(wrap.scrollTop);
+  }, { passive: true });
   return wrap;
 }
