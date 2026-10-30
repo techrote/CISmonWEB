@@ -1052,3 +1052,8 @@ body.minimal-only .living-surface, body.minimal-only .living-overlay {
   .focus-dual-pane .focus-grid-wrap { max-height: 45vh; }
   body.minimal-only .focus-dual-pane .focus-grid-wrap { max-height: 46vh; }
 }
+
+
+.focus-dual-pane[data-density="ultra"] .focus-grid-cell { padding-block: 3px; font-size: 10px; }
+.focus-dual-pane[data-density="compact"] .focus-grid-cell { padding-block: 5px; }
+.focus-dual-pane[data-density="comfortable"] .focus-grid-cell { padding-block: 9px; font-size: 12px; }
