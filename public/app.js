@@ -918,6 +918,8 @@ $("#dualPaneSelect").addEventListener("change", () => {
 $("#surfaceLayout").addEventListener("change", () => {
   const current = editingSurfaces.find(x => x.id === editingSurfaceId);
   if (!current) return;
+  // Commit the outgoing pane before hiding its editor.
+  commitPaneForm();
   $("#dualPaneSection").hidden = $("#surfaceLayout").value !== "focus_dual";
   if (!$("#dualPaneSection").hidden) {
     $("#dualPaneSelect").value = String(editingPaneIndex);
