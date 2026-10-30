@@ -14,7 +14,8 @@ export const DEFAULT_CONFIG = Object.freeze({
   backfillRunsPerRepo: 4,
   activeSurfaceId: "focus",
   surfaces: DEFAULT_SURFACES,
-  surfacePresetVersion: FUN_PRESET_VERSION
+  surfacePresetVersion: FUN_PRESET_VERSION,
+  focusUxVersion: 1
 });
 
 function normalizePatterns(value) {
@@ -34,10 +35,18 @@ export class ConfigStore {
     await mkdir(this.dataDir, { recursive: true, mode: 0o700 });
     try {
       const parsed = JSON.parse(await readFile(this.configPath, "utf8"));
+      const oldSurfaces = migrateFunPresets(parsed.surfaces, DEFAULT_SURFACES, parsed.surfacePresetVersion);
+      // Migrate only once. Existing tuned profiles survive unchanged; a
+      // deliberately deleted Focus Dual will not reappear on next restart.
+      const migrated = Array.isArray(oldSurfaces) ? [...oldSurfaces] : [...DEFAULT_SURFACES];
+      if ((parsed.focusUxVersion || 0) < 1 && !migrated.some(p => p.id === "focus-dual")) {
+        migrated.push(DEFAULT_SURFACES.find(p => p.id === "focus-dual"));
+      }
       this.current = this.normalize({
         ...DEFAULT_CONFIG, ...parsed,
+        focusUxVersion: 1,
         surfacePresetVersion: FUN_PRESET_VERSION,
-        surfaces: migrateFunPresets(parsed.surfaces, DEFAULT_SURFACES, parsed.surfacePresetVersion)
+        surfaces: migrated
       });
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
