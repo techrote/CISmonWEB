@@ -67,6 +67,7 @@ const gridScroll = new Map();
 let gridSaveQueue = Promise.resolve();
 let editingPaneIndex = 0;
 let minimalOnly = false;
+let localSurfaceOverride = null;
 
 function node(tag, className, text) {
   const el = document.createElement(tag);
@@ -104,7 +105,7 @@ async function api(path, options = {}) {
 
 function activeSurface() {
   const surfaces = config?.surfaces || DEFAULT_SURFACES;
-  return surfaces.find((surface) => surface.id === config?.activeSurfaceId) || surfaces[0];
+  return surfaces.find((surface) => surface.id === (localSurfaceOverride || config?.activeSurfaceId)) || surfaces[0];
 }
 
 function fieldMeta(row, field) {
@@ -415,7 +416,7 @@ function applySurfaceVisuals() {
 function renderSurfaceTabs() {
   elements.surfaceTabs.replaceChildren();
   for (const surface of config.surfaces) {
-    const button = node("button", "surface-tab" + (surface.id === config.activeSurfaceId ? " active" : ""), surface.name);
+    const button = node("button", "surface-tab" + (surface.id === (localSurfaceOverride || config.activeSurfaceId) ? " active" : ""), surface.name);
     button.type = "button";
     button.dataset.surfaceId = surface.id;
     button.addEventListener("click", () => switchSurface(surface.id));
@@ -425,8 +426,8 @@ function renderSurfaceTabs() {
 
 async function switchSurface(surfaceId) {
   if (!config.surfaces.some((surface) => surface.id === surfaceId)) return;
-  config.activeSurfaceId = surfaceId;
-  try {
+  localSurfaceOverride = surfaceId;
+  if (!minimalOnly) try {
     config = await api("/api/display", {
       method: "PUT",
       body: JSON.stringify({ activeSurfaceId: surfaceId })
@@ -1089,11 +1090,15 @@ async function boot() {
   minimalOnly = query.get("minimal") === "1";
   config = await api("/api/config");
   const requested = new URL(window.location.href).searchParams.get("surface");
-  if (requested && config.surfaces.some((surface) => surface.id === requested) && requested !== config.activeSurfaceId) {
-    config = await api("/api/display", {
-      method: "PUT",
-      body: JSON.stringify({ activeSurfaceId: requested })
-    });
+  if (requested && config.surfaces.some((surface) => surface.id === requested)) {
+    localSurfaceOverride = requested;
+    // Popup windows must not hijack the main window's active surface.
+    if (!minimalOnly && requested !== config.activeSurfaceId) {
+      config = await api("/api/display", {
+        method: "PUT",
+        body: JSON.stringify({ activeSurfaceId: requested })
+      });
+    }
   }
   renderSurfaceTabs();
   applySurfaceVisuals();
