@@ -132,6 +132,7 @@ export function parseRun(value, repository) {
     htmlUrl: value.html_url || "",
     state: parseState(value.status),
     conclusion: parseConclusion(value.conclusion),
+    createdAtEpoch: parseTimestamp(value.created_at),
     startedAtEpoch: parseTimestamp(value.run_started_at || value.created_at),
     updatedAtEpoch: parseTimestamp(value.updated_at),
     jobs: [],
