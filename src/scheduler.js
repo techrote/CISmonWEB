@@ -67,3 +67,13 @@ export function duePriorityRepository(repositories, nowMs, liveStreak = 0, maxLi
   if (nonLive && liveStreak >= maxLiveBurst) return nonLive;
   return oldest;
 }
+
+
+// On the first scan, a repo whose newest run is months old must remain cold.
+// The original code used wall-clock time merely because an old run was first
+// discovered, making EVERY monitored repository appear recently active.
+export function activityTimeFromGitHub(newestUpdatedEpoch, nowMs) {
+  const epoch = Number(newestUpdatedEpoch);
+  if (!Number.isFinite(epoch) || epoch <= 0) return 0;
+  return Math.max(0, Math.min(nowMs, Math.floor(epoch * 1000)));
+}
