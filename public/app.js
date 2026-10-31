@@ -626,6 +626,7 @@ function analysisGrid(analysis) {
     ["ATTENTION", analysis.attention.replaceAll("_", " ")],
     ["ELAPSED", formatDuration(analysis.elapsedMs)],
     ["MEDIAN", formatDuration(analysis.baseline?.median || 0)],
+    ["RUN ETA", formatDuration(analysis.estimatedRemainingMs)],
     ["P25 / P75", formatDuration(analysis.baseline?.p25 || 0) + " / " + formatDuration(analysis.baseline?.p75 || 0)],
     ["MAD", formatDuration(analysis.baseline?.mad || 0)],
     ["EWMA", formatDuration(analysis.baseline?.ewma || 0)],
