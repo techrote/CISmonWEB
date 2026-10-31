@@ -338,7 +338,8 @@ export class Monitor {
 
     const detailed = {
       ...run,
-      jobs: (response.json.jobs || []).map(parseJob)
+      jobs: (response.json.jobs || []).map(parseJob),
+      jobsFetchedAtMs: Date.now()
     };
 
     const existing = this.tracker.find(detailed.repository, detailed.runId);
