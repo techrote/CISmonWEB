@@ -11,6 +11,7 @@ export const GRID_FIELDS = Object.freeze([
   ["baseline", "MED", 85],
   ["ratio", "RATIO", 72],
   ["remaining", "ETA", 85],
+  ["stageRemaining", "S-ETA", 88],
   ["confidence", "CONF", 70],
   ["qty", "QTY", 58],
   ["confQty", "CONF/QTY", 120],
@@ -170,6 +171,7 @@ export function gridFieldRaw(row, field) {
     case "baseline": return row.baselineMedianMs || 0;
     case "ratio": return row.ratio || 0;
     case "remaining": return row.estimatedRemainingMs || 0;
+    case "stageRemaining": return row.stageEstimatedRemainingMs || 0;
     case "confidence": return ["none", "low", "medium", "high"].indexOf(row.confidence);
     case "qty": return row.baselineSamples || 0;
     case "confQty": return (["none", "low", "medium", "high"].indexOf(row.confidence) + 1) * 100000 +
