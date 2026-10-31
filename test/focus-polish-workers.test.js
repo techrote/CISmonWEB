@@ -53,6 +53,16 @@ test("unknown and stale job detail produce an explicit lower bound, not a false 
   assert.equal(activeWorkerSummary([], NOW).activeWorkersPartial,false);
 });
 
+test("a running workflow with >100 jobs is a known lower bound, not falsely complete", () => {
+  const item = tracked("techrote/matrix", 9, RunState.InProgress, [job(1),job(2)]);
+  item.snapshot.jobsCoverageComplete = false;
+  const result = activeWorkerSummary([item],NOW);
+  assert.equal(result.activeWorkers,2);
+  assert.equal(result.workerCoverageRuns,0);
+  assert.equal(result.workerTotalRunningRuns,1);
+  assert.equal(result.activeWorkersPartial,true);
+});
+
 test("tracker keeps detail timestamp across an API summary and ignores completed jobs", () => {
   const tracker = new RunTracker();
   const active = {
