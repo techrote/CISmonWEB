@@ -21,7 +21,7 @@ function display(row, field, options) {
   switch (field) {
     case "elapsed": return row.state === "queued" ?
       "WAIT " + duration(row.waitingMs || 0) : duration(raw);
-    case "remaining": case "baseline": return duration(raw);
+    case "remaining": case "stageRemaining": case "baseline": return duration(raw);
     case "ratio": return raw ? raw.toFixed(2) + "×" : "—";
     case "added": return formatGridDate(raw, options.gridAddedFormat, options.gridAddedPattern);
     case "updated": return formatGridDate(raw, options.gridUpdatedFormat, options.gridUpdatedPattern);
@@ -69,7 +69,11 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
         secondary ? (options.gridSortSecondaryDir === "asc" ? " ²↑" : " ²↓") : "") +
       (locked.has(field) ? " 🔒" : ""));
     sort.type = "button";
-    sort.title = "Click: primary sort; Shift+click: secondary sort; Ctrl+click: lock/unlock width";
+    sort.title = (field === "remaining"
+      ? "Whole workflow ETA based on run-level history; S-ETA is the active stage only. "
+      : field === "stageRemaining"
+        ? "Current step/job ETA only; not the remaining workflow time. "
+        : "") + "Click: primary sort; Shift+click: secondary sort; Ctrl+click: lock/unlock width";
     sort.setAttribute("aria-pressed", String(locked.has(field)));
     sort.addEventListener("click", event => {
       if (event.ctrlKey || event.metaKey) {
