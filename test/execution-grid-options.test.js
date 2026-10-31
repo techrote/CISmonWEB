@@ -213,3 +213,26 @@ test("witnessed queue exit outranks provisional API start, but already-running d
   assert.equal(runExecutionStartEpoch(active), created+200);
   assert.equal(runExecutionElapsedMs(active, created+215),15000);
 });
+
+
+test("Focus headers and editor wire modifier keys and separate date controls", async () => {
+  const view = await readFile(new URL("../public/focus-grid.js", import.meta.url), "utf8");
+  const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
+  const app = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
+  assert.match(view, /event\.ctrlKey/);
+  assert.match(view, /event\.shiftKey/);
+  assert.match(view, /callbacks\.onSecondarySort/);
+  assert.match(view, /callbacks\.onLock/);
+  assert.match(view, /options\.gridSortSecondaryBy/);
+  assert.match(view, /CONF\/QTY|confQty/);
+  for (const id of [
+    "surfaceGridSecondarySort","surfaceGridSecondaryDirection",
+    "dualPaneSecondarySort","dualPaneSecondaryDirection",
+    "surfaceAddedDateFormat","surfaceUpdatedDateFormat",
+    "surfaceAddedDatePattern","surfaceUpdatedDatePattern",
+    "dualPaneAddedDateFormat","dualPaneUpdatedDateFormat",
+    "dualPaneAddedDatePattern","dualPaneUpdatedDatePattern"
+  ]) assert.match(html, new RegExp('id="' + id + '"'));
+  assert.match(app, /gridLockedWidths/);
+  assert.match(app, /GRID_DATE_FORMATS/);
+});
