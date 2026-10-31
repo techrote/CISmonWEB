@@ -367,7 +367,28 @@
               </select>
             </label>
           </div>
-          <p class="surface-help">Drag columns below to reorder; toggle to show/hide. In the grid, drag header dividers to resize or click a header to sort. Sizes and order persist.</p>
+          <div class="form-grid three">
+            <label class="field">
+              <span>Secondary sort field</span>
+              <select id="surfaceGridSecondarySort"></select>
+            </label>
+            <label class="field">
+              <span>Secondary sort direction</span>
+              <select id="surfaceGridSecondaryDirection">
+                <option value="desc">Descending</option>
+                <option value="asc">Ascending</option>
+              </select>
+            </label>
+          </div>
+          <div class="form-grid three">
+            <label class="field"><span>ADDED date format</span><select id="surfaceAddedDateFormat"></select></label>
+            <label class="field"><span>UPDATED date format</span><select id="surfaceUpdatedDateFormat"></select></label>
+            <label class="field"><span>ADDED custom pattern</span>
+              <input id="surfaceAddedDatePattern" maxlength="64" placeholder="YYYY-MM-DD HH:mm"></label>
+            <label class="field"><span>UPDATED custom pattern</span>
+              <input id="surfaceUpdatedDatePattern" maxlength="64" placeholder="DD/MM/YYYY HH:mm:ss"></label>
+          </div>
+          <p class="surface-help">Click title to sort, Shift+click for the secondary sort, Ctrl+click title or divider to lock/unlock width. Drag unlocked dividers to resize, or drag headers/field chips to reorder. Date patterns use YYYY MM DD HH mm ss in local time.</p>
           <div id="gridFieldEditor" class="grid-field-editor" aria-label="Drag to reorder grid columns"></div>
         </section>
 
@@ -389,6 +410,20 @@
               <option value="1">Right pane</option>
             </select>
           </label>
+          <div class="form-grid three">
+            <label class="field"><span>Secondary sort field</span>
+              <select id="dualPaneSecondarySort"></select></label>
+            <label class="field"><span>Secondary sort direction</span>
+              <select id="dualPaneSecondaryDirection"><option value="desc">Descending</option><option value="asc">Ascending</option></select></label>
+            <label class="field"><span>ADDED date format</span>
+              <select id="dualPaneAddedDateFormat"></select></label>
+            <label class="field"><span>UPDATED date format</span>
+              <select id="dualPaneUpdatedDateFormat"></select></label>
+            <label class="field"><span>ADDED custom pattern</span>
+              <input id="dualPaneAddedDatePattern" maxlength="64" placeholder="YYYY-MM-DD HH:mm"></label>
+            <label class="field"><span>UPDATED custom pattern</span>
+              <input id="dualPaneUpdatedDatePattern" maxlength="64" placeholder="DD/MM/YYYY HH:mm:ss"></label>
+          </div>
           <div class="form-grid three" id="vertPaneHeightGroup" hidden>
             <label class="field"><span>Pane height mode</span>
               <select id="vertPaneHeightUnit">
