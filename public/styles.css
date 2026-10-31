@@ -1109,3 +1109,18 @@ body.minimal-only .focus-vert-pane .focus-grid-wrap {
   height: auto;
   max-height: none;
 }
+
+
+/* Focus grid: locked widths are immutable until Ctrl+click unlocks the
+   header/divider; secondary sort has a distinct "²" marker in header text. */
+.focus-grid-head[data-locked="true"] {
+  background: color-mix(in srgb, var(--running) 9%, var(--panel-2));
+}
+.focus-grid-head[data-locked="true"] .focus-resize-handle {
+  cursor: not-allowed;
+  background: color-mix(in srgb, var(--running) 18%, transparent);
+  border-right: 2px solid var(--running);
+}
+.focus-grid-head[data-locked="true"] .focus-sort {
+  color: var(--text);
+}
