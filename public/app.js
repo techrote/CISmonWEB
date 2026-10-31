@@ -1,7 +1,7 @@
 import { isFunLayout } from "/fun-core.js";
 import { createFocusGrid } from "/focus-grid-view.js";
-import { GRID_FIELDS, GRID_DEFAULT_WIDTH, normalizeGridFields, normalizePane,
-  normalizeVertCount, normalizeVertPanes } from "/focus-grid.js";
+import { GRID_FIELDS, GRID_DATE_FORMATS, GRID_DEFAULT_WIDTH,
+  normalizeGridFields, normalizePane, normalizeVertCount, normalizeVertPanes } from "/focus-grid.js";
 import { createFunView } from "/fun-surfaces.js";
 import {
   DEFAULT_SURFACES,
@@ -207,6 +207,13 @@ function changeGridOptions(paneIndex, changes, paneKind = "dual") {
   if (latestState && !gridInteracting) renderDashboard(latestState);
 }
 
+function targetSortSecondary(paneIndex, paneKind) {
+  const current = activeSurface();
+  const target = paneIndex < 0 ? current :
+    current[paneKind === "vert" ? "vertPanes" : "dualPanes"][paneIndex];
+  return target?.gridSortSecondaryBy || "";
+}
+
 function gridCallbacks(surface, paneIndex = -1, paneKind = "dual") {
   const key = surface.id + ":" + paneKind + ":" + paneIndex;
   return {
@@ -225,8 +232,27 @@ function gridCallbacks(surface, paneIndex = -1, paneKind = "dual") {
       }, paneKind);
     },
     onSort: (field, direction) => changeGridOptions(paneIndex, {
-      gridSortBy: field, gridSortDir: direction
+      gridSortBy: field, gridSortDir: direction,
+      gridSortSecondaryBy: field === targetSortSecondary(paneIndex, paneKind) ? "" :
+        targetSortSecondary(paneIndex, paneKind)
     }, paneKind),
+    onSecondarySort: (field, direction) => {
+      const current = activeSurface();
+      const target = paneIndex < 0 ? current :
+        current[paneKind === "vert" ? "vertPanes" : "dualPanes"][paneIndex];
+      changeGridOptions(paneIndex, {
+        gridSortSecondaryBy: field === target.gridSortBy ? "" : field,
+        gridSortSecondaryDir: direction
+      }, paneKind);
+    },
+    onLock: (field, locked) => {
+      const current = activeSurface();
+      const target = paneIndex < 0 ? current :
+        current[paneKind === "vert" ? "vertPanes" : "dualPanes"][paneIndex];
+      const locks = new Set(target.gridLockedWidths || []);
+      if (locked) locks.add(field); else locks.delete(field);
+      changeGridOptions(paneIndex, { gridLockedWidths: [...locks] }, paneKind);
+    },
     onReorder: fields => changeGridOptions(paneIndex, { gridFields: fields }, paneKind)
   };
 }
@@ -780,6 +806,12 @@ function writePaneForm(pane) {
   $("#dualPaneName").value = pane.name;
   $("#dualPaneSort").value = pane.gridSortBy;
   $("#dualPaneDirection").value = pane.gridSortDir;
+  $("#dualPaneSecondarySort").value = pane.gridSortSecondaryBy || "";
+  $("#dualPaneSecondaryDirection").value = pane.gridSortSecondaryDir || "desc";
+  $("#dualPaneAddedDateFormat").value = pane.gridAddedFormat || "short";
+  $("#dualPaneUpdatedDateFormat").value = pane.gridUpdatedFormat || "short";
+  $("#dualPaneAddedDatePattern").value = pane.gridAddedPattern || "YYYY-MM-DD HH:mm";
+  $("#dualPaneUpdatedDatePattern").value = pane.gridUpdatedPattern || "YYYY-MM-DD HH:mm";
   $("#dualPaneMax").value = pane.maxItems;
   $("#dualPaneDensity").value = pane.density || "compact";
   $("#dualPaneAttention").value = pane.minAttention;
@@ -817,6 +849,12 @@ function commitPaneForm() {
     name: $("#dualPaneName").value,
     gridSortBy: $("#dualPaneSort").value,
     gridSortDir: $("#dualPaneDirection").value,
+    gridSortSecondaryBy: $("#dualPaneSecondarySort").value,
+    gridSortSecondaryDir: $("#dualPaneSecondaryDirection").value,
+    gridAddedFormat: $("#dualPaneAddedDateFormat").value,
+    gridUpdatedFormat: $("#dualPaneUpdatedDateFormat").value,
+    gridAddedPattern: $("#dualPaneAddedDatePattern").value,
+    gridUpdatedPattern: $("#dualPaneUpdatedDatePattern").value,
     maxItems: Number($("#dualPaneMax").value),
     density: $("#dualPaneDensity").value,
     minAttention: $("#dualPaneAttention").value,
@@ -878,6 +916,12 @@ function writeSurfaceForm(surface) {
   $("#surfaceGridWrap").checked = surface.gridWrap;
   $("#surfaceGridSort").value = surface.gridSortBy;
   $("#surfaceGridDirection").value = surface.gridSortDir;
+  $("#surfaceGridSecondarySort").value = surface.gridSortSecondaryBy || "";
+  $("#surfaceGridSecondaryDirection").value = surface.gridSortSecondaryDir || "desc";
+  $("#surfaceAddedDateFormat").value = surface.gridAddedFormat || "short";
+  $("#surfaceUpdatedDateFormat").value = surface.gridUpdatedFormat || "short";
+  $("#surfaceAddedDatePattern").value = surface.gridAddedPattern || "YYYY-MM-DD HH:mm";
+  $("#surfaceUpdatedDatePattern").value = surface.gridUpdatedPattern || "YYYY-MM-DD HH:mm";
   writeFieldEditor("#gridFieldEditor", surface.gridFields);
   updateDualSection(surface);
   $("#surfaceLayout").value = surface.layout;
@@ -923,6 +967,12 @@ function readSurfaceForm(existing) {
     gridWrap: $("#surfaceGridWrap").checked,
     gridSortBy: $("#surfaceGridSort").value,
     gridSortDir: $("#surfaceGridDirection").value,
+    gridSortSecondaryBy: $("#surfaceGridSecondarySort").value,
+    gridSortSecondaryDir: $("#surfaceGridSecondaryDirection").value,
+    gridAddedFormat: $("#surfaceAddedDateFormat").value,
+    gridUpdatedFormat: $("#surfaceUpdatedDateFormat").value,
+    gridAddedPattern: $("#surfaceAddedDatePattern").value,
+    gridUpdatedPattern: $("#surfaceUpdatedDatePattern").value,
     gridFields: readFieldEditor("#gridFieldEditor"),
     density: $("#surfaceDensity").value,
     theme: $("#surfaceTheme").value,
@@ -1189,6 +1239,28 @@ elements.detailDialog.addEventListener("close", () => { selectedRun = null; });
 async function boot() {
   fillSortOptions($("#surfaceGridSort"));
   fillSortOptions($("#dualPaneSort"));
+  for (const id of ["surfaceGridSecondarySort", "dualPaneSecondarySort"]) {
+    const el = $("#" + id);
+    el.replaceChildren();
+    const none = node("option", "", "None");
+    none.value = "";
+    el.append(none);
+    for (const [field, label] of GRID_FIELDS) {
+      const option = node("option", "", label);
+      option.value = field;
+      el.append(option);
+    }
+  }
+  for (const id of ["surfaceAddedDateFormat", "surfaceUpdatedDateFormat",
+    "dualPaneAddedDateFormat", "dualPaneUpdatedDateFormat"]) {
+    const el = $("#" + id);
+    el.replaceChildren();
+    for (const [format, label] of GRID_DATE_FORMATS) {
+      const option = node("option", "", label);
+      option.value = format;
+      el.append(option);
+    }
+  }
   const query = new URL(location.href).searchParams;
   minimalOnly = query.get("minimal") === "1";
   config = await api("/api/config");
