@@ -17,7 +17,7 @@ export function activeWorkerSummary(tracked, nowMs = Date.now(), maxDetailAgeMs 
     const detailMs = Number(run.jobsFetchedAtMs || 0);
     if (!detailMs || detailMs > nowMs + 30000 ||
         nowMs - detailMs > maxDetailAgeMs || !Array.isArray(run.jobs)) continue;
-    coveredWorkflowCount++;
+    if (run.jobsCoverageComplete !== false) coveredWorkflowCount++;
     for (const job of run.jobs) {
       if (job.state !== RunState.InProgress || !Number.isFinite(job.id) || job.id <= 0) continue;
       activeJobs.add(run.repository + "#" + job.id);
