@@ -191,3 +191,25 @@ test("date format and lock customization survive ConfigStore normalization", () 
   assert.equal(surface.gridAddedPattern,"YYYY-MM-DD HH:mm:ss");
   assert.equal(surface.gridUpdatedFormat,"iso_local");
 });
+
+
+test("witnessed queue exit outranks provisional API start, but already-running discovery uses API", () => {
+  const created = 1_800_000_000;
+  const tracker = new RunTracker();
+  const first = parseRun(rawRun("in_progress", created, created + 45, created + 220), "techrote/project");
+  tracker.upsert(first,(created + 220)*1000);
+  const discovered = tracker.all()[0].snapshot;
+  assert.equal(discovered.observedStartedAtEpoch,0);
+  assert.equal(runExecutionStartEpoch(discovered),created + 45);
+  assert.equal(runExecutionElapsedMs(discovered,created + 220),175000);
+
+  const witness = new RunTracker();
+  witness.upsert(parseRun(rawRun("queued",created,created + 1,created + 100),"techrote/project"),
+    (created+100)*1000);
+  witness.upsert(parseRun(rawRun("in_progress",created,created + 1,created + 200),"techrote/project"),
+    (created+200)*1000);
+  const active = witness.all()[0].snapshot;
+  assert.equal(active.observedStartedAtEpoch, created+200);
+  assert.equal(runExecutionStartEpoch(active), created+200);
+  assert.equal(runExecutionElapsedMs(active, created+215),15000);
+});
