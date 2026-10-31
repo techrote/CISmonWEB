@@ -1,4 +1,5 @@
 import { RuntimeAnalyzer } from "./core/analyzer.js";
+import { activeWorkerSummary } from "./worker-summary.js";
 import { buildDashboard } from "./core/dashboard.js";
 import { globMatch } from "./core/glob.js";
 import { PollPolicy } from "./core/poll-policy.js";
