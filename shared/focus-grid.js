@@ -13,6 +13,7 @@ export const GRID_FIELDS = Object.freeze([
   ["remaining", "ETA", 85],
   ["confidence", "CONF", 70],
   ["qty", "QTY", 58],
+  ["confQty", "CONF/QTY", 120],
   ["added", "ADDED", 120],
   ["updated", "UPDATED", 120],
   ["branch", "BRANCH", 210],
@@ -21,6 +22,59 @@ export const GRID_FIELDS = Object.freeze([
 export const GRID_FIELD_SET = new Set(GRID_FIELDS.map(([id]) => id));
 export const GRID_LABEL = Object.freeze(Object.fromEntries(GRID_FIELDS.map(([id, label]) => [id, label])));
 export const GRID_DEFAULT_WIDTH = Object.freeze(Object.fromEntries(GRID_FIELDS.map(([id, , width]) => [id, width])));
+export const GRID_DATE_FORMATS = Object.freeze([
+  ["short", "Local short"],
+  ["date", "Local date"],
+  ["time", "Local time"],
+  ["datetime", "Local date + seconds"],
+  ["iso_local", "ISO local"],
+  ["iso_utc", "ISO UTC"],
+  ["relative", "Relative (ago)"],
+  ["custom", "Custom pattern"]
+]);
+const GRID_DATE_FORMAT_IDS = new Set(GRID_DATE_FORMATS.map(([id]) => id));
+export function normalizeGridLockedWidths(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter(field => GRID_FIELD_SET.has(field)))];
+}
+export function normalizeGridDateFormat(value) {
+  return GRID_DATE_FORMAT_IDS.has(value) ? value : "short";
+}
+export function normalizeGridDatePattern(value) {
+  return typeof value === "string" ? value.slice(0, 64) : "YYYY-MM-DD HH:mm";
+}
+export function formatGridDate(epoch, mode = "short", custom = "", nowMs = Date.now()) {
+  if (!Number.isFinite(Number(epoch)) || epoch <= 0) return "—";
+  const date = new Date(Number(epoch) * 1000);
+  if (!Number.isFinite(date.getTime())) return "—";
+  const format = normalizeGridDateFormat(mode);
+  if (format === "relative") {
+    const delta = Math.max(0, nowMs - date.getTime());
+    const secs = Math.floor(delta / 1000);
+    if (secs < 60) return secs + "s ago";
+    if (secs < 3600) return Math.floor(secs / 60) + "m ago";
+    if (secs < 86400) return Math.floor(secs / 3600) + "h ago";
+    return Math.floor(secs / 86400) + "d ago";
+  }
+  if (format === "iso_utc") return date.toISOString().replace(".000Z", "Z");
+  const opts = format === "time" ? { hour: "2-digit", minute: "2-digit", second: "2-digit" } :
+    format === "date" ? { year: "numeric", month: "short", day: "numeric" } :
+    format === "datetime" ? { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" } :
+    { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" };
+  if (format === "short" || format === "date" || format === "time" || format === "datetime") {
+    return date.toLocaleString([], opts);
+  }
+  const pad = n => String(n).padStart(2, "0");
+  const parts = {
+    YYYY: date.getFullYear(), MM: pad(date.getMonth() + 1),
+    DD: pad(date.getDate()), HH: pad(date.getHours()),
+    mm: pad(date.getMinutes()), ss: pad(date.getSeconds())
+  };
+  const pattern = format === "iso_local" ? "YYYY-MM-DD HH:mm:ss" :
+    normalizeGridDatePattern(custom);
+  return pattern.replace(/YYYY|MM|DD|HH|mm|ss/g, token => String(parts[token]));
+}
+
 export const DEFAULT_FOCUS_COLUMNS = Object.freeze([
   "owner", "repository", "workflow", "attention", "stage",
   "state", "elapsed", "remaining", "confidence", "qty", "added", "updated"
@@ -78,7 +132,15 @@ export function normalizePane(input = {}, index = 0, parent = {}) {
     gridWidths: normalizeGridWidths(input.gridWidths),
     gridWrap: boolean(input.gridWrap, parent.gridWrap ?? false),
     gridSortBy: normalizeGridSortBy(input.gridSortBy ?? (left ? "priority" : "attention")),
-    gridSortDir: input.gridSortDir === "asc" ? "asc" : "desc"
+    gridSortDir: input.gridSortDir === "asc" ? "asc" : "desc",
+    gridSortSecondaryBy: normalizeGridSortBy(input.gridSortSecondaryBy) === "priority"
+      ? "" : normalizeGridSortBy(input.gridSortSecondaryBy),
+    gridSortSecondaryDir: input.gridSortSecondaryDir === "asc" ? "asc" : "desc",
+    gridLockedWidths: normalizeGridLockedWidths(input.gridLockedWidths),
+    gridAddedFormat: normalizeGridDateFormat(input.gridAddedFormat),
+    gridUpdatedFormat: normalizeGridDateFormat(input.gridUpdatedFormat),
+    gridAddedPattern: normalizeGridDatePattern(input.gridAddedPattern),
+    gridUpdatedPattern: normalizeGridDatePattern(input.gridUpdatedPattern)
   };
 }
 
@@ -110,6 +172,8 @@ export function gridFieldRaw(row, field) {
     case "remaining": return row.estimatedRemainingMs || 0;
     case "confidence": return ["none", "low", "medium", "high"].indexOf(row.confidence);
     case "qty": return row.baselineSamples || 0;
+    case "confQty": return (["none", "low", "medium", "high"].indexOf(row.confidence) + 1) * 100000 +
+      (row.baselineSamples || 0);
     case "added": return row.createdAtEpoch || 0;
     case "updated": return row.updatedAtEpoch || 0;
     case "branch": return row.branch || "";
@@ -118,18 +182,35 @@ export function gridFieldRaw(row, field) {
   }
 }
 
-export function sortGridRows(rows, by = "priority", direction = "desc") {
-  if (by === "priority" || !GRID_FIELD_SET.has(by)) return [...rows];
-  const sign = direction === "asc" ? 1 : -1;
+const attentionPriority = Object.freeze({ normal: 0, interesting: 1, suspicious: 2, action_required: 3 });
+function comparable(row, key) {
+  if (key === "attention") return attentionPriority[row.attention] ?? -1;
+  if (key === "priority") {
+    const running = row.state === "in_progress" ? 10000 : row.state === "queued" ? 9000 : 0;
+    return running + (attentionPriority[row.attention] ?? 0) * 1000 +
+      (row.manualWatch ? 100 : 0) + Math.min(Math.floor((row.elapsedMs || 0) / 60000), 99);
+  }
+  return gridFieldRaw(row, key);
+}
+function compareValues(a, b, direction) {
+  const diff = typeof a === "number" && typeof b === "number" ? a - b :
+    String(a ?? "").localeCompare(String(b ?? ""), undefined, { numeric: true });
+  return diff * (direction === "asc" ? 1 : -1);
+}
+export function sortGridRows(rows, by = "priority", direction = "desc",
+  secondaryBy = "", secondaryDir = "desc") {
+  if ((by === "priority" && !secondaryBy) || !normalizeGridSortBy(by)) return [...rows];
+  const secondary = GRID_FIELD_SET.has(secondaryBy) && secondaryBy !== by ? secondaryBy : "";
   return rows.map((row, index) => ({ row, index })).sort((a, b) => {
-    const value = row => by === "attention"
-      ? ({ normal: 0, interesting: 1, suspicious: 2, action_required: 3 }[row.attention] ?? -1)
-      : gridFieldRaw(row, by);
-    const x = value(a.row), y = value(b.row);
-    const diff = typeof x === "number" && typeof y === "number"
-      ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true });
-    return diff * sign || a.index - b.index;
-  }).map(x => x.row);
+    const first = compareValues(comparable(a.row, by), comparable(b.row, by), direction);
+    if (first) return first;
+    if (secondary) {
+      const second = compareValues(comparable(a.row, secondary),
+        comparable(b.row, secondary), secondaryDir);
+      if (second) return second;
+    }
+    return a.index - b.index;
+  }).map(({ row }) => row);
 }
 
 export function reorderGridFields(fields, dragged, target) {
