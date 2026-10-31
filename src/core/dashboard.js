@@ -102,7 +102,8 @@ export function buildDashboard(
     if (currentJob) {
       item.stage = currentJob.name;
       const currentStep = currentJob.steps?.find((step) => step.state === RunState.InProgress);
-      if (nowEpoch > 1000000000 && run.state !== RunState.Queued) {
+      if (nowEpoch > 1000000000 &&
+          run.state !== RunState.Queued && currentJob.state === RunState.InProgress) {
         if (currentStep) {
           item.stage = currentStep.name;
           applyAnalysis(item, analyzer.analyzeStep(run, currentJob, currentStep, nowEpoch));
