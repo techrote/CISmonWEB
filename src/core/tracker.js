@@ -27,6 +27,10 @@ export class RunTracker {
       if ((!merged.jobs || merged.jobs.length === 0) && existing.snapshot.jobs?.length) {
         merged.jobs = existing.snapshot.jobs;
       }
+      const leftQueue = existing.snapshot.state === RunState.Queued &&
+        merged.state === RunState.InProgress;
+      merged.observedStartedAtEpoch = existing.snapshot.observedStartedAtEpoch ||
+        (leftQueue ? Math.floor(nowMs / 1000) : 0);
       existing.snapshot = merged;
       existing.lastSeenMs = nowMs;
       existing.observedActive ||= incomingActive;
@@ -37,7 +41,12 @@ export class RunTracker {
     }
 
     const tracked = {
-      snapshot: { ...snapshot, jobs: snapshot.jobs || [] },
+      snapshot: {
+        ...snapshot, jobs: snapshot.jobs || [],
+        // First-seen running runs use GitHub's distinct run_started_at;
+        // observations are only an actual queued→running transition fallback.
+        observedStartedAtEpoch: 0
+      },
       firstSeenMs: nowMs,
       lastSeenMs: nowMs,
       terminalSinceMs: isTerminal(snapshot.state) ? terminalTimestampMs(snapshot, nowMs) : 0,

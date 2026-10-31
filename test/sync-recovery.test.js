@@ -190,7 +190,8 @@ test("queue wait never compares against runtime baseline and cannot become a sta
   assert.equal(rows[0].possiblyStalled, false);
   assert.equal(rows[0].ratio, 0);
   assert.equal(rows[0].estimatedRemainingMs, 0);
-  assert.equal(rows[0].elapsedMs, 1000000); // time waiting, not executed
+  assert.equal(rows[0].elapsedMs, 0); // never conflate queue age and execution
+  assert.equal(rows[0].waitingMs, 1000000);
 });
 
 test("the populated empty-state panel must remain hidden", async () => {

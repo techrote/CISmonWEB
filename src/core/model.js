@@ -43,7 +43,7 @@ function key(parts) {
 
 export const baselineKey = Object.freeze({
   run(run) {
-    return key(["run", run.repository, run.workflowId, run.event]);
+    return key(["run-exec-v2", run.repository, run.workflowId, run.event]);
   },
   job(run, job) {
     return key(["job", run.repository, run.workflowId, run.event, job.name]);

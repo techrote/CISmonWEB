@@ -133,7 +133,11 @@ export function parseRun(value, repository) {
     state: parseState(value.status),
     conclusion: parseConclusion(value.conclusion),
     createdAtEpoch: parseTimestamp(value.created_at),
-    startedAtEpoch: parseTimestamp(value.run_started_at || value.created_at),
+    // GitHub run_started_at is provisional; actual running time prefers job
+    // started_at, then a witnessed queued→running transition.
+    runStartedAtEpoch: parseTimestamp(value.run_started_at),
+    startedAtEpoch: parseTimestamp(value.run_started_at),
+
     updatedAtEpoch: parseTimestamp(value.updated_at),
     jobs: [],
   };

@@ -195,6 +195,22 @@ status and rate-limit backoff. The `/api/state` JSON endpoint exposes
 A full repository sweep is complete only after a successful response from
 each repository; attempted-but-failed requests do not count as scanned.
 
+## Execution-only ETA and advanced Focus columns
+
+CISmonWEB now separates workflow queue waiting from actual job execution.
+Queued workflows display WAIT age while execution ELAPSED remains zero;
+running workflows reset their execution clock on a witnessed queue exit or
+use actual job starts when available. Run-level ETA baselines are
+versioned (run-exec-v2) to prevent old queue-inclusive samples from
+inflating estimates. Existing job/step histories remain intact.
+
+Focus, Dense, Focus Dual and Focus Vert support **Ctrl-click to lock column
+width**, **Shift-click for secondary sort**, a combined **CONF/QTY**
+field, and independent ADDED/UPDATED local/UTC/relative/custom date
+formats. Secondary sorting works within primary-sort ties, for example
+STATE then ADDED. Full instructions: [Execution ETA and Focus grid
+options](docs/EXECUTION_ETA_GRID.md).
+
 ## Polling behavior
 
 The default policy mirrors CISmon:

@@ -1,4 +1,5 @@
 import { AttentionLevel, RunState, baselineKey, isTerminal } from "./model.js";
+import { runExecutionElapsedMs } from "./analyzer.js";
 
 function attentionRank(level) {
   if (level === AttentionLevel.ActionRequired) return 4;
@@ -62,6 +63,7 @@ export function buildDashboard(
       attention: AttentionLevel.Normal,
       confidence: "none",
       elapsedMs: 0,
+      waitingMs: 0,
       baselineMedianMs: 0,
       estimatedRemainingMs: 0,
       ratio: 0,
@@ -74,19 +76,23 @@ export function buildDashboard(
     if (nowEpoch > 1000000000) {
       runAnalysis = analyzer.analyzeRun(run, nowEpoch);
       item.elapsedMs = runAnalysis.elapsedMs;
+      item.waitingMs = runAnalysis.waitingMs || 0;
     } else {
-      const localElapsed = isTerminal(run.state) && tracked.terminalSinceMs
+      const localElapsed = run.state === RunState.Completed
         ? tracked.terminalSinceMs - tracked.firstSeenMs
         : nowMs - tracked.firstSeenMs;
+      const preciseElapsed = runExecutionElapsedMs(run, nowEpoch);
       runAnalysis = run.state === RunState.Queued
         ? analyzer.analyzeQueuedRun(run, localElapsed)
         : analyzer.analyze(
           baselineKey.run(run),
-          localElapsed,
+          preciseElapsed || (run.state === RunState.InProgress &&
+            !run.createdAtEpoch && !run.startedAtEpoch ? localElapsed : 0),
           isTerminal(run.state),
           run.conclusion
         );
-      item.elapsedMs = localElapsed;
+      item.elapsedMs = runAnalysis.elapsedMs;
+      item.waitingMs = runAnalysis.waitingMs || 0;
     }
     applyAnalysis(item, runAnalysis);
 
@@ -96,7 +102,8 @@ export function buildDashboard(
     if (currentJob) {
       item.stage = currentJob.name;
       const currentStep = currentJob.steps?.find((step) => step.state === RunState.InProgress);
-      if (nowEpoch > 1000000000 && run.state !== RunState.Queued) {
+      if (nowEpoch > 1000000000 &&
+          run.state !== RunState.Queued && currentJob.state === RunState.InProgress) {
         if (currentStep) {
           item.stage = currentStep.name;
           applyAnalysis(item, analyzer.analyzeStep(run, currentJob, currentStep, nowEpoch));

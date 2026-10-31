@@ -1,6 +1,6 @@
 import {
-  GRID_DEFAULT_WIDTH, GRID_LABEL, gridFieldRaw,
-  normalizeGridFields, reorderGridFields, repoName, repoOwner, sortGridRows
+  GRID_DEFAULT_WIDTH, GRID_LABEL, gridFieldRaw, formatGridDate,
+  normalizeGridFields, reorderGridFields, sortGridRows
 } from "/focus-grid.js";
 
 const make = (tag, className = "", text) => {
@@ -16,20 +16,19 @@ function duration(ms) {
   return h ? h + "h " + (m % 60) + "m" :
     m ? m + "m " + (s % 60) + "s" : s + "s";
 }
-function timestamp(epoch) {
-  if (!Number.isFinite(epoch) || epoch <= 0) return "—";
-  const d = new Date(epoch * 1000);
-  return Number.isNaN(d.getTime()) ? "—" :
-    d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
-function display(row, field) {
+function display(row, field, options) {
   const raw = gridFieldRaw(row, field);
   switch (field) {
-    case "remaining": case "baseline": case "elapsed": return duration(raw);
+    case "elapsed": return row.state === "queued" ?
+      "WAIT " + duration(row.waitingMs || 0) : duration(raw);
+    case "remaining": case "baseline": return duration(raw);
     case "ratio": return raw ? raw.toFixed(2) + "×" : "—";
-    case "added": case "updated": return timestamp(raw);
+    case "added": return formatGridDate(raw, options.gridAddedFormat, options.gridAddedPattern);
+    case "updated": return formatGridDate(raw, options.gridUpdatedFormat, options.gridUpdatedPattern);
     case "confidence": return row.confidence || "none";
-    case "qty": return String(raw);
+    case "qty": return String(row.baselineSamples || 0);
+    case "confQty": return (row.confidence || "none").toUpperCase() + " / " +
+      (row.baselineSamples || 0);
     case "stage": return raw || "workflow";
     case "attention": return String(raw).replaceAll("_", " ");
     case "state": return String(raw || "unknown").replaceAll("_", " ");
@@ -44,6 +43,7 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
   table.dataset.wrap = options.gridWrap ? "wrap" : "clip";
   table.setAttribute("aria-label", key + " workflows");
   const widths = { ...GRID_DEFAULT_WIDTH, ...(options.gridWidths || {}) };
+  const locked = new Set(options.gridLockedWidths || []);
   const total = fields.reduce((acc, field) => acc + widths[field], 0);
   table.style.width = Math.max(420, total) + "px";
   const colGroup = make("colgroup");
@@ -62,12 +62,27 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
     const th = make("th", "focus-grid-head");
     th.dataset.field = field;
     th.draggable = true;
+    th.dataset.locked = String(locked.has(field));
+    const secondary = options.gridSortSecondaryBy === field;
     const sort = make("button", "focus-sort", GRID_LABEL[field] +
-      (options.gridSortBy === field ? (options.gridSortDir === "asc" ? " ↑" : " ↓") : ""));
+      (options.gridSortBy === field ? (options.gridSortDir === "asc" ? " ↑" : " ↓") :
+        secondary ? (options.gridSortSecondaryDir === "asc" ? " ²↑" : " ²↓") : "") +
+      (locked.has(field) ? " 🔒" : ""));
     sort.type = "button";
-    sort.title = "Sort by " + GRID_LABEL[field] + " (click again to reverse)";
-    sort.addEventListener("click", () => {
-      callbacks.onSort?.(field, options.gridSortBy === field && options.gridSortDir === "desc" ? "asc" : "desc");
+    sort.title = "Click: primary sort; Shift+click: secondary sort; Ctrl+click: lock/unlock width";
+    sort.setAttribute("aria-pressed", String(locked.has(field)));
+    sort.addEventListener("click", event => {
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        callbacks.onLock?.(field, !locked.has(field));
+      } else if (event.shiftKey) {
+        event.preventDefault();
+        callbacks.onSecondarySort?.(field,
+          secondary && options.gridSortSecondaryDir === "desc" ? "asc" : "desc");
+      } else {
+        callbacks.onSort?.(field,
+          options.gridSortBy === field && options.gridSortDir === "desc" ? "asc" : "desc");
+      }
     });
     th.addEventListener("dragstart", event => {
       event.dataTransfer.effectAllowed = "move";
@@ -84,10 +99,13 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
     });
     const handle = make("span", "focus-resize-handle");
     handle.setAttribute("role", "separator");
-    handle.setAttribute("aria-label", "Resize " + GRID_LABEL[field] + " column");
+    handle.setAttribute("aria-label", (locked.has(field) ? "Locked " : "Resize ") +
+      GRID_LABEL[field] + " column (Ctrl+click to toggle lock)");
     handle.setAttribute("aria-orientation", "vertical");
     handle.tabIndex = 0;
+    handle.dataset.locked = String(locked.has(field));
     function resizeBy(delta) {
+      if (locked.has(field)) return;
       const target = Math.max(48, Math.min(750, widths[field] + delta));
       widths[field] = target;
       cols.get(field).style.width = target + "px";
@@ -96,6 +114,11 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
     handle.addEventListener("pointerdown", event => {
       if (event.button !== 0) return;
       event.preventDefault(); event.stopPropagation();
+      if (event.ctrlKey || event.metaKey) {
+        callbacks.onLock?.(field, !locked.has(field));
+        return;
+      }
+      if (locked.has(field)) return;
       callbacks.onInteracting?.(true);
       const startX = event.clientX, original = widths[field];
       handle.setPointerCapture(event.pointerId);
@@ -112,7 +135,12 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
       handle.addEventListener("pointercancel", finish, { once: true });
     });
     handle.addEventListener("keydown", event => {
-      if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+      if ((event.ctrlKey || event.metaKey) && (event.key === "Enter" || event.key === " ")) {
+        event.preventDefault();
+        callbacks.onLock?.(field, !locked.has(field));
+        return;
+      }
+      if (!["ArrowLeft", "ArrowRight"].includes(event.key) || locked.has(field)) return;
       event.preventDefault();
       resizeBy(event.key === "ArrowLeft" ? -15 : 15);
       callbacks.onWidth?.(field, widths[field]);
@@ -123,7 +151,8 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
   head.append(headerRow);
   table.append(head);
   const body = make("tbody");
-  for (const row of sortGridRows(rows, options.gridSortBy, options.gridSortDir)) {
+  for (const row of sortGridRows(rows, options.gridSortBy, options.gridSortDir,
+    options.gridSortSecondaryBy, options.gridSortSecondaryDir)) {
     const tr = make("tr", "focus-grid-row");
     tr.dataset.attention = row.attention || "normal";
     tr.tabIndex = 0;
@@ -137,7 +166,7 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
     for (const field of fields) {
       const td = make("td", "focus-grid-cell");
       td.dataset.field = field;
-      const v = display(row, field);
+      const v = display(row, field, options);
       const value = make("span", "focus-grid-value", v);
       value.title = v;
       if (field === "attention") value.className += " attention-" + row.attention;
