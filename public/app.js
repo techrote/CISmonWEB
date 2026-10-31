@@ -89,9 +89,9 @@ function formatDuration(ms) {
   const hours = Math.floor((total % 86400) / 3600);
   const minutes = Math.floor((total % 3600) / 60);
   const seconds = total % 60;
-  if (days) return days + "d " + hours + "h";
-  if (hours) return hours + "h " + minutes + "m";
-  if (minutes) return minutes + "m " + seconds + "s";
+  if (days) return days + "d" + hours + "h";
+  if (hours) return hours + "h" + minutes + "m";
+  if (minutes) return minutes + "m" + seconds + "s";
   return seconds + "s";
 }
 
@@ -460,8 +460,15 @@ function renderDashboard(state) {
     alerts: displayedRows.filter((row) => row.attention === "action_required").length,
     suspicious: displayedRows.filter((row) => row.attention === "suspicious").length
   };
+  const workerCount = Number(state.activeWorkers || 0);
+  const workerLabel = workerCount + (state.activeWorkersPartial ? "+" : "") + " workers";
+  elements.surfaceSummary.title = state.activeWorkersPartial
+    ? workerCount + " confirmed occupied runner slots; job detail received for " +
+      (state.workerCoverageRuns || 0) + "/" + (state.workerTotalRunningRuns || 0) +
+      " running workflows. Actual count may be higher."
+    : workerCount + " in-progress Actions jobs occupying runner slots.";
   elements.surfaceSummary.textContent =
-    displayedRows.length + " shown" +
+    workerLabel + " · " + displayedRows.length + " shown" +
     (!["focus_dual", "focus_vert"].includes(surface.layout) && matchedRows.length > rows.length ? " of " + matchedRows.length + " matching" : "") +
     " · " + counts.active + " running · " + counts.queued +
     " queued · " + counts.suspicious + " suspicious · " + counts.alerts + " action required";
@@ -816,7 +823,7 @@ function writePaneForm(pane) {
   $("#dualPaneMax").value = pane.maxItems;
   $("#dualPaneDensity").value = pane.density || "compact";
   $("#dualPaneAttention").value = pane.minAttention;
-  $("#dualPaneWrap").checked = pane.gridWrap;
+  $("#dualPaneOverflow").value = pane.gridOverflowMode || (pane.gridWrap ? "wrap" : "ellipsis");
   $("#vertPaneHeightUnit").value = pane.heightUnit || "vh";
   $("#vertPaneHeightValue").value = pane.heightValue || 42;
   updateVertHeightRange();
@@ -859,7 +866,8 @@ function commitPaneForm() {
     maxItems: Number($("#dualPaneMax").value),
     density: $("#dualPaneDensity").value,
     minAttention: $("#dualPaneAttention").value,
-    gridWrap: $("#dualPaneWrap").checked,
+    gridWrap: $("#dualPaneOverflow").value === "wrap",
+    gridOverflowMode: $("#dualPaneOverflow").value,
     repositoryPatterns: $("#dualPaneRepositories").value,
     workflowPatterns: $("#dualPaneWorkflows").value,
     eventPatterns: $("#dualPaneEvents").value,
@@ -914,7 +922,7 @@ function updateDualSection(surface) {
 
 function writeSurfaceForm(surface) {
   $("#surfaceName").value = surface.name;
-  $("#surfaceGridWrap").checked = surface.gridWrap;
+  $("#surfaceGridOverflow").value = surface.gridOverflowMode || (surface.gridWrap ? "wrap" : "ellipsis");
   $("#surfaceGridSort").value = surface.gridSortBy;
   $("#surfaceGridDirection").value = surface.gridSortDir;
   $("#surfaceGridSecondarySort").value = surface.gridSortSecondaryBy || "";
@@ -965,7 +973,8 @@ function readSurfaceForm(existing) {
     ...existing,
     name: $("#surfaceName").value,
     layout: $("#surfaceLayout").value,
-    gridWrap: $("#surfaceGridWrap").checked,
+    gridWrap: $("#surfaceGridOverflow").value === "wrap",
+    gridOverflowMode: $("#surfaceGridOverflow").value,
     gridSortBy: $("#surfaceGridSort").value,
     gridSortDir: $("#surfaceGridDirection").value,
     gridSortSecondaryBy: $("#surfaceGridSecondarySort").value,
