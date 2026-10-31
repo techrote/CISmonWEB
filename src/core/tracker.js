@@ -24,10 +24,20 @@ export class RunTracker {
       const wasTerminal = isTerminal(existing.snapshot.state);
       const nowTerminal = isTerminal(snapshot.state);
       const merged = { ...snapshot };
-      if ((!merged.jobs || merged.jobs.length === 0) && existing.snapshot.jobs?.length) {
+      // Workflow-list summaries contain jobs: [] but no detail timestamp.
+      // Retain separately fetched evidence across summary refreshes, including
+      // verified empty lists. An explicit detail response (timestamp present)
+      // is authoritative even when it clears previously running jobs.
+      if (!Object.hasOwn(snapshot, "jobsFetchedAtMs") &&
+          Number(existing.snapshot.jobsFetchedAtMs || 0) > 0) {
         merged.jobs = existing.snapshot.jobs;
-        merged.jobsFetchedAtMs = existing.snapshot.jobsFetchedAtMs || 0;
+        merged.jobsFetchedAtMs = existing.snapshot.jobsFetchedAtMs;
         merged.jobsCoverageComplete = existing.snapshot.jobsCoverageComplete !== false;
+        merged.jobsExpectedCount = existing.snapshot.jobsExpectedCount;
+      } else if ((!merged.jobs || merged.jobs.length === 0) &&
+                 existing.snapshot.jobs?.length &&
+                 !Object.hasOwn(snapshot, "jobsFetchedAtMs")) {
+        merged.jobs = existing.snapshot.jobs;
       }
       const leftQueue = existing.snapshot.state === RunState.Queued &&
         merged.state === RunState.InProgress;
