@@ -19,7 +19,10 @@ export function dueActiveRun(trackedRuns, nextByKey, nowMs, keyForRun) {
   let bestDue = Number.POSITIVE_INFINITY;
   let bestKey = "";
   for (const tracked of trackedRuns) {
-    if (tracked.snapshot.state !== "in_progress") continue;
+    // GitHub may report a queued parent while its matrix children are active.
+    // Both live provider states require job-detail inspection.
+    if (tracked.snapshot.state !== "in_progress" &&
+        tracked.snapshot.state !== "queued") continue;
     const key = keyForRun(tracked.snapshot);
     const due = Number(nextByKey.get(key) ?? 0);
     if (due > nowMs) continue;
