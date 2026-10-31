@@ -12,6 +12,21 @@ Direct URL: http://127.0.0.1:8787/?surface=focus&minimal=1
 
 Popup selection is local to that window: opening it does not change the active profile in the main browser window. Fullscreen remains a separate option.
 
+## Execution-only timing and advanced grid controls
+
+Queue waiting and run execution are now separate. Queued workflows show WAIT
+duration while execution ELAPSED stays zero. The execution clock starts when
+processing begins; ETA relies only on execution-duration history. Previous
+queue-contaminated run-level baselines are no longer used (run-exec-v2).
+
+**Ctrl-click** a column title or divider to lock/unlock its width.
+**Shift-click** a title to set a secondary sort among equal primary values.
+CONF/QTY combines baseline confidence and successful sample count.
+ADDED/UPDATED have independent local, UTC, relative and custom date formats.
+These settings persist separately for Focus, Dense and each Dual/Vert pane.
+
+See [EXECUTION_ETA_GRID.md](EXECUTION_ETA_GRID.md) for details.
+
 ## Field and column controls
 
 The Surface editor includes the **Focus grid** area for drag-reordered column chips, field visibility, Wrap versus Clip, sorting and direction. On the displayed grid:
@@ -31,12 +46,13 @@ The Surface editor includes the **Focus grid** area for drag-reordered column ch
 | ATTN | Normal / interesting / suspicious / action required |
 | STAGE | Current job or step |
 | STATE | Queued, running or terminal conclusion |
-| ELAPSED | Execution duration, or queue waiting time |
+| ELAPSED | Execution duration only; queued rows show WAIT age separately |
 | MED | Successful-history median |
 | RATIO | Elapsed/median |
 | ETA | Estimated remaining duration when available |
 | CONF | Confidence in learned timing baseline |
 | QTY | Successful timing samples supporting the shown baseline |
+| CONF/QTY | Combined confidence and successful sample count |
 | ADDED | GitHub workflow-run creation timestamp |
 | UPDATED | GitHub workflow-run last-update timestamp |
 | BRANCH | Head branch |
