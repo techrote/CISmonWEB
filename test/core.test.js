@@ -124,7 +124,7 @@ test("history journal records run, job and step durations and survives reload", 
     };
 
     assert.equal(await store.recordRun(run), true);
-    assert.equal(store.samples(baselineKey.run(run), 10)[0].durationMs, 10000);
+    assert.equal(store.samples(baselineKey.run(run), 10)[0].durationMs, 8000); // 1001–1009 job execution; not queued/setup time
     assert.equal(store.hasRun(run.repository, run.runId), true);
 
     const reloaded = new FileHistoryStore(dir, 64);
