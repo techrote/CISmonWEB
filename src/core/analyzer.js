@@ -18,10 +18,12 @@ export function runExecutionStartEpoch(run) {
   const witnessed = Number(run.observedStartedAtEpoch || 0);
   const provisional = Number(run.runStartedAtEpoch || 0);
   const created = Number(run.createdAtEpoch || 0);
-  // A distinct GitHub run_started_at is useful if jobs haven't arrived yet;
-  // when identical to created_at it may still include queue wait.
-  if (provisional > created && provisional > 0) return provisional;
+  // When a queued→running transition was witnessed, that observation must
+  // win over a provisional run_started_at which may include queue delay.
   if (witnessed > 0) return witnessed;
+  // For runs first discovered already running, a distinct API start is the
+  // best available estimate until actual job timestamps arrive.
+  if (provisional > created && provisional > 0) return provisional;
   // Legacy normalized fixtures (and earlier-source records) only supplied
   // startedAtEpoch; new GitHub rows always include createdAtEpoch explicitly.
   if (!created && Number(run.startedAtEpoch || 0) > 0) return Number(run.startedAtEpoch);
