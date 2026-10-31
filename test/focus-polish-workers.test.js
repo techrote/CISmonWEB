@@ -121,7 +121,9 @@ test("header alignment, no padlock glyph, compact times, hard clip, and scrollba
   assert.match(grid,/usedWidth\(\) > wrap\.clientWidth/);
   assert.match(grid,/wrap\.dataset\.horizontal = "fit"/);
   assert.match(grid,/duration\(ms\)/);
-  assert.doesNotMatch(grid,/ \+ " \/ " \+/);
+  // Scope the compact separator assertion to CONF/QTY: the run-row tooltip
+  // intentionally still contains "repo / workflow" with human-readable spaces.
+  assert.match(grid,/case "confQty":\s*return[^\n]*\+ "\/" \+/);
   assert.match(css,/\.focus-grid-wrap\[data-horizontal="fit"\]\s*\{\s*overflow-x:\s*hidden/);
   assert.match(css,/text-align:\s*center/);
   assert.match(css,/vertical-align:\s*middle/);
