@@ -22,6 +22,9 @@ export function runExecutionStartEpoch(run) {
   // when identical to created_at it may still include queue wait.
   if (provisional > created && provisional > 0) return provisional;
   if (witnessed > 0) return witnessed;
+  // Legacy normalized fixtures (and earlier-source records) only supplied
+  // startedAtEpoch; new GitHub rows always include createdAtEpoch explicitly.
+  if (!created && Number(run.startedAtEpoch || 0) > 0) return Number(run.startedAtEpoch);
   return provisional > 0 && !created ? provisional : 0;
 }
 
