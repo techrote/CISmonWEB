@@ -56,7 +56,7 @@ test("Grid columns can be disabled, reordered, resized and safely normalized", (
   assert.deepEqual(normalizeGridFields(["owner","owner","garbage","qty"]), ["owner","qty"]);
   assert.deepEqual(normalizeGridFields(undefined), DEFAULT_FOCUS_COLUMNS);
   assert.deepEqual(normalizeGridWidths({ owner:5, qty:900, bogus:100, attention:"133" }),
-    { owner:48, qty:750, attention:133 });
+    { owner:40, qty:750, attention:133 });
   assert.equal(GRID_DEFAULT_WIDTH.repository, 170);
   assert.equal(normalizeGridSortBy("updated"), "updated");
   assert.equal(normalizeGridSortBy("bad"), "priority");
