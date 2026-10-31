@@ -8,6 +8,43 @@ export function elapsedMs(startedEpoch, completedEpoch, nowEpoch) {
   return (end - startedEpoch) * 1000;
 }
 
+// Work begins when the first actual job starts. Workflow created_at is
+// *never* an execution start; queued time must not contaminate ETA baselines.
+export function runExecutionStartEpoch(run) {
+  const startedJobs = (run.jobs || [])
+    .map(job => Number(job.startedAtEpoch || 0))
+    .filter(value => value > 0);
+  if (startedJobs.length) return Math.min(...startedJobs);
+  const witnessed = Number(run.observedStartedAtEpoch || 0);
+  const provisional = Number(run.runStartedAtEpoch || 0);
+  const created = Number(run.createdAtEpoch || 0);
+  // A distinct GitHub run_started_at is useful if jobs haven't arrived yet;
+  // when identical to created_at it may still include queue wait.
+  if (provisional > created && provisional > 0) return provisional;
+  if (witnessed > 0) return witnessed;
+  return provisional > 0 && !created ? provisional : 0;
+}
+
+export function runExecutionEndEpoch(run) {
+  const finishedJobs = (run.jobs || [])
+    .map(job => Number(job.completedAtEpoch || 0))
+    .filter(value => value > 0);
+  if (finishedJobs.length) return Math.max(...finishedJobs);
+  return Number(run.updatedAtEpoch || 0);
+}
+
+export function runExecutionElapsedMs(run, nowEpoch) {
+  const start = runExecutionStartEpoch(run);
+  if (run.state === RunState.Queued || !start) return 0;
+  return elapsedMs(start,
+    run.state === RunState.Completed ? runExecutionEndEpoch(run) : 0, nowEpoch);
+}
+
+export function runQueueWaitingMs(run, nowEpoch) {
+  if (run.state !== RunState.Queued) return 0;
+  return elapsedMs(run.createdAtEpoch || run.startedAtEpoch, 0, nowEpoch);
+}
+
 function confidenceFor(samples) {
   if (samples === 0) return "none";
   if (samples < 5) return "low";
@@ -82,20 +119,17 @@ export class RuntimeAnalyzer {
 
   analyzeQueuedRun(run, waitingMs) {
     const result = this.analyze(baselineKey.run(run), 0, false, Conclusion.Unknown);
-    result.elapsedMs = waitingMs;
+    result.elapsedMs = 0;
+    result.waitingMs = waitingMs;
     result.estimatedRemainingMs = 0;
     result.reason = "queued; execution has not started";
     return result;
   }
 
   analyzeRun(run, nowEpoch) {
-    const elapsed = elapsedMs(
-      run.startedAtEpoch,
-      run.state === RunState.Completed ? run.updatedAtEpoch : 0,
-      nowEpoch
-    );
+    const elapsed = runExecutionElapsedMs(run, nowEpoch);
     if (run.state === RunState.Queued) {
-      return this.analyzeQueuedRun(run, elapsed);
+      return this.analyzeQueuedRun(run, runQueueWaitingMs(run, nowEpoch));
     }
     return this.analyze(
       baselineKey.run(run), elapsed,

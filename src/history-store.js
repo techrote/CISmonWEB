@@ -1,7 +1,7 @@
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { Conclusion, baselineKey } from "./core/model.js";
-import { elapsedMs } from "./core/analyzer.js";
+import { elapsedMs, runExecutionElapsedMs, runExecutionEndEpoch } from "./core/analyzer.js";
 
 function runKey(repository, runId) {
   return repository + "#" + runId;
@@ -83,9 +83,9 @@ export class FileHistoryStore {
 
     add(
       baselineKey.run(run),
-      elapsedMs(run.startedAtEpoch, run.updatedAtEpoch, run.updatedAtEpoch),
+      runExecutionElapsedMs(run, run.updatedAtEpoch),
       run.conclusion === Conclusion.Success,
-      run.updatedAtEpoch,
+      runExecutionEndEpoch(run),
     );
 
     for (const job of run.jobs || []) {
