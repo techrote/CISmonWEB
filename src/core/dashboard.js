@@ -20,6 +20,26 @@ function applyAnalysis(item, analysis) {
   }
 }
 
+// Stage observations may increase attention, but must never overwrite the
+// workflow-level MED/ETA/CONF/QTY/RATIO. Those fields are one coherent
+// duration scope and must match the run detail dialog.
+function applyStageAnalysis(item, analysis, kind) {
+  if (attentionRank(analysis.attention) > attentionRank(item.attention)) {
+    item.attention = analysis.attention;
+  }
+  item.possiblyStalled ||= analysis.possiblyStalled;
+  item.stageKind = kind;
+  item.stageElapsedMs = analysis.elapsedMs;
+  item.stageAttention = analysis.attention;
+  item.stagePossiblyStalled = analysis.possiblyStalled;
+  item.stageConfidence = analysis.confidence;
+  item.stageBaselineSamples = analysis.baseline.samples;
+  item.stageBaselineMedianMs = analysis.baseline.samples > 0
+    ? Math.round(analysis.baseline.median) : 0;
+  item.stageEstimatedRemainingMs = analysis.baseline.samples > 0
+    ? analysis.estimatedRemainingMs : 0;
+}
+
 function score(item) {
   let result = attentionRank(item.attention) * 1000;
 
@@ -54,6 +74,14 @@ export function buildDashboard(
       createdAtEpoch: run.createdAtEpoch || run.startedAtEpoch || 0,
       updatedAtEpoch: run.updatedAtEpoch || 0,
       baselineSamples: 0,
+      stageKind: "",
+      stageElapsedMs: 0,
+      stageAttention: AttentionLevel.Normal,
+      stagePossiblyStalled: false,
+      stageConfidence: "none",
+      stageBaselineSamples: 0,
+      stageBaselineMedianMs: 0,
+      stageEstimatedRemainingMs: 0,
       branch: run.branch,
       event: run.event,
       headSha: run.headSha,
@@ -106,9 +134,11 @@ export function buildDashboard(
           run.state !== RunState.Queued && currentJob.state === RunState.InProgress) {
         if (currentStep) {
           item.stage = currentStep.name;
-          applyAnalysis(item, analyzer.analyzeStep(run, currentJob, currentStep, nowEpoch));
+          applyStageAnalysis(item,
+            analyzer.analyzeStep(run, currentJob, currentStep, nowEpoch), "step");
         } else {
-          applyAnalysis(item, analyzer.analyzeJob(run, currentJob, nowEpoch));
+          applyStageAnalysis(item,
+            analyzer.analyzeJob(run, currentJob, nowEpoch), "job");
         }
       }
     }
