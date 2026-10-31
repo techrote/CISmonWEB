@@ -1,5 +1,5 @@
 import { RuntimeAnalyzer } from "./core/analyzer.js";
-import { activeWorkerSummary } from "./worker-summary.js";
+import { activeWorkerSummary, observedRunningJobs, observedRunState } from "./worker-summary.js";
 import { buildDashboard } from "./core/dashboard.js";
 import { globMatch } from "./core/glob.js";
 import { PollPolicy } from "./core/poll-policy.js";
@@ -25,6 +25,8 @@ const LIVE_FRESHNESS_WARNING_MS = 90000;
 const REPOSITORY_CATALOG_REFRESH_MS = 10 * 60 * 1000;
 const DASHBOARD_CANDIDATE_LIMIT = 4096;
 const TERMINAL_IMPORT_LOOKBACK_MS = 3600000;
+const MAX_JOB_DETAIL_PAGES = 20;
+const JOB_PAGE_SIZE = 100;
 
 function detailKey(run) {
   return run.repository + "#" + run.runId;
@@ -43,6 +45,9 @@ export class Monitor {
     this.queuedBackfill = new Set();
     this.activeDetailNextMs = new Map();
     this.activeDetailErrors = new Map();
+    // One page per scheduler request; continuation pages take precedence over
+    // a new scan so active jobs beyond page 1 are discovered promptly.
+    this.liveJobScans = new Map();
     this.fastSweepQueue = [];
     this.fastSweepReason = "";
     this.activeDetailStreak = 0;
@@ -192,6 +197,7 @@ export class Monitor {
     this.queuedBackfill.clear();
     this.activeDetailNextMs.clear();
     this.activeDetailErrors.clear();
+    this.liveJobScans.clear();
     this.fastSweepQueue = [];
     this.activeDetailStreak = 0;
     this.liveRepoStreak = 0;
@@ -211,6 +217,7 @@ export class Monitor {
   async refresh() {
     if (!this.providerReady) return this.discoverRepositories();
     for (const repo of this.repositories) repo.nextPollMs = 0;
+    this.liveJobScans.clear();
     for (const key of this.activeDetailNextMs.keys()) this.activeDetailNextMs.set(key, 0);
     this.activeDetailStreak = 0;
     this.liveRepoStreak = 0;
@@ -277,22 +284,25 @@ export class Monitor {
         this.tracker.upsert(run, nowMs);
       }
 
-      if (run.state === RunState.InProgress) {
-        hasActive = true;
+      if (run.state === RunState.InProgress || run.state === RunState.Queued) {
+        // Queued is a provider status, not proof that no matrix job runs.
+        // Retained fresh job evidence upgrades repository polling priority.
+        const tracked = this.tracker.find(run.repository, run.runId)?.snapshot;
+        if (run.state === RunState.InProgress ||
+            (tracked && observedRunningJobs(tracked, receivedMs).length)) hasActive = true;
+        if (run.state === RunState.Queued) hasQueued = true;
         if (!this.activeDetailNextMs.has(detailKey(run))) {
           this.activeDetailNextMs.set(detailKey(run), 0);
         }
-      } else if (run.state === RunState.Queued) {
-        hasQueued = true;
-      } else if (run.state === RunState.Completed &&
-                 backfillQueued < this.config.backfillRunsPerRepo &&
-                 !this.history.hasRun(run.repository, run.runId)) {
-        this.queueBackfill(run);
-        backfillQueued += 1;
-      }
-      if (run.state === RunState.Completed) {
+      } else if (run.state === RunState.Completed) {
+        if (backfillQueued < this.config.backfillRunsPerRepo &&
+            !this.history.hasRun(run.repository, run.runId)) {
+          this.queueBackfill(run);
+          backfillQueued += 1;
+        }
         this.activeDetailNextMs.delete(detailKey(run));
         this.activeDetailErrors.delete(detailKey(run));
+        this.liveJobScans.delete(detailKey(run));
       }
     }
 
@@ -325,35 +335,114 @@ export class Monitor {
   }
 
   async fetchRunDetails(run, nowMs, recordWhenComplete) {
+    const key = detailKey(run);
+    const live = !recordWhenComplete &&
+      (run.state === RunState.Queued || run.state === RunState.InProgress);
+    const scan = live ? (this.liveJobScans.get(key) || {
+      page: 1, startedAtMs: 0, expected: null, jobsById: new Map(),
+      invalidJobs: 0
+    }) : null;
+    const page = scan?.page || 1;
     const response = await this.client.get(
-      "/repos/" + run.repository + "/actions/runs/" + run.runId + "/jobs?per_page=100"
+      "/repos/" + run.repository + "/actions/runs/" + run.runId +
+      "/jobs?per_page=" + JOB_PAGE_SIZE + "&page=" + page
     );
-    this.updateRate(response, Date.now());
-    const scope = "jobs:" + detailKey(run);
+    const receivedMs = Date.now();
+    this.updateRate(response, receivedMs);
+    const scope = "jobs:" + key;
     if (!response.ok || !Array.isArray(response.json?.jobs)) {
-      this.reportFailure(scope, response, Date.now());
+      // Never replace previously observed jobs with an empty/failed response.
+      this.reportFailure(scope, response, receivedMs);
       return false;
     }
     this.clearFailure(scope);
 
+    const rawJobs = response.json.jobs;
+    const reportedTotal = Number(response.json.total_count);
+    const hasTotal = response.json.total_count !== undefined &&
+      Number.isSafeInteger(reportedTotal) && reportedTotal >= 0;
+    let jobs;
+    let coverageComplete;
+    let fetchedAtMs;
+    let expectedCount;
+
+    if (live) {
+      if (page === 1) {
+        scan.startedAtMs = receivedMs;
+        scan.jobsById = new Map();
+        scan.invalidJobs = 0;
+        scan.expected = hasTotal ? reportedTotal : null;
+      } else if (hasTotal) {
+        // Matrix jobs may be added during a multi-page read.
+        scan.expected = Math.max(scan.expected || 0, reportedTotal);
+      }
+      rawJobs.forEach((raw, index) => {
+        const job = parseJob(raw);
+        if (!Number.isSafeInteger(job.id) || job.id <= 0) scan.invalidJobs++;
+        const id = job.id > 0 ? job.id : "invalid:" + page + ":" + index;
+        scan.jobsById.set(id, job);
+      });
+      jobs = [...scan.jobsById.values()];
+      const allSeen = scan.expected === null
+        ? rawJobs.length < JOB_PAGE_SIZE : jobs.length >= scan.expected;
+      coverageComplete = allSeen && scan.invalidJobs === 0;
+      const anotherPage = !allSeen && rawJobs.length === JOB_PAGE_SIZE &&
+        page < MAX_JOB_DETAIL_PAGES;
+      if (anotherPage) {
+        scan.page++;
+        this.liveJobScans.set(key, scan);
+      } else {
+        this.liveJobScans.delete(key);
+      }
+      // Age the full snapshot from its oldest page, not the newest page.
+      fetchedAtMs = scan.startedAtMs;
+      expectedCount = scan.expected;
+    } else {
+      // Historical backfill retains its existing one-page request budget.
+      jobs = rawJobs.map(parseJob);
+      coverageComplete = hasTotal && reportedTotal <= jobs.length;
+      fetchedAtMs = receivedMs;
+      expectedCount = hasTotal ? reportedTotal : null;
+    }
+
     const detailed = {
       ...run,
-      jobs: (response.json.jobs || []).map(parseJob),
-      jobsFetchedAtMs: Date.now(),
-      jobsCoverageComplete: (Number(response.json.total_count) || 0) <=
-        (response.json.jobs || []).length
+      jobs,
+      jobsFetchedAtMs: fetchedAtMs,
+      jobsCoverageComplete: coverageComplete,
+      jobsExpectedCount: expectedCount
     };
-
     const existing = this.tracker.find(detailed.repository, detailed.runId);
     if (!recordWhenComplete ||
         shouldTrackSummaryRun(detailed, Boolean(existing), nowMs, TERMINAL_IMPORT_LOOKBACK_MS)) {
       this.tracker.upsert(detailed, nowMs);
     }
-
     if (recordWhenComplete && detailed.state === RunState.Completed) {
       await this.history.recordRun(detailed);
     }
     return true;
+  }
+
+  async serviceLiveDetail(tracked, nowMs) {
+    const key = detailKey(tracked.snapshot);
+    const ok = await this.fetchRunDetails(tracked.snapshot, nowMs, false);
+    const errors = ok ? 0 : (this.activeDetailErrors.get(key) || 0) + 1;
+    if (ok) this.activeDetailErrors.delete(key);
+    else this.activeDetailErrors.set(key, errors);
+
+    const current = this.tracker.find(tracked.snapshot.repository,
+      tracked.snapshot.runId)?.snapshot || tracked.snapshot;
+    const hasActivity = observedRunningJobs(current, Date.now()).length > 0;
+    const interval = !ok ? this.policy.nextInterval(false, false, 0, errors)
+      : hasActivity || current.state === RunState.InProgress
+        ? this.policy.activeMs : this.policy.queuedMs;
+    // A partially scanned matrix can hide its active jobs on later pages.
+    // Continue immediately (subject to the global API spacing/fairness rule).
+    this.activeDetailNextMs.set(key,
+      ok && this.liveJobScans.has(key) ? -1 : Date.now() + interval);
+    this.activeDetailStreak += 1;
+    this.lastSchedulerAction = "live-detail:" + key;
+    this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
   }
 
   async tick() {
@@ -386,19 +475,7 @@ export class Monitor {
       );
 
       if (shouldServiceActive(active, repo, this.activeDetailStreak, ACTIVE_DETAIL_BURST_LIMIT)) {
-        const key = detailKey(active.snapshot);
-        const ok = await this.fetchRunDetails(active.snapshot, nowMs, false);
-        const errors = ok ? 0 : (this.activeDetailErrors.get(key) || 0) + 1;
-        if (ok) this.activeDetailErrors.delete(key);
-        else this.activeDetailErrors.set(key, errors);
-        this.activeDetailNextMs.set(
-          key,
-          Date.now() + (ok ? this.policy.activeMs :
-            this.policy.nextInterval(false, false, 0, errors))
-        );
-        this.activeDetailStreak += 1;
-        this.lastSchedulerAction = "active-detail:" + key;
-        this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
+        await this.serviceLiveDetail(active, nowMs);
         return;
       }
 
@@ -413,19 +490,7 @@ export class Monitor {
       }
 
       if (active) {
-        const key = detailKey(active.snapshot);
-        const ok = await this.fetchRunDetails(active.snapshot, nowMs, false);
-        const errors = ok ? 0 : (this.activeDetailErrors.get(key) || 0) + 1;
-        if (ok) this.activeDetailErrors.delete(key);
-        else this.activeDetailErrors.set(key, errors);
-        this.activeDetailNextMs.set(
-          key,
-          Date.now() + (ok ? this.policy.activeMs :
-            this.policy.nextInterval(false, false, 0, errors))
-        );
-        this.activeDetailStreak += 1;
-        this.lastSchedulerAction = "active-detail:" + key;
-        this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
+        await this.serviceLiveDetail(active, nowMs);
         return;
       }
 
@@ -481,9 +546,11 @@ export class Monitor {
       failedInitialScanCount > 0 ? "degraded" :
       oldestLiveSummaryAgeMs !== null && oldestLiveSummaryAgeMs > LIVE_FRESHNESS_WARNING_MS ? "stale" :
       (ongoingDetailFailures > 0 || freshError) ? "degraded" : "online";
-    const trackedActiveCount = tracked.filter((run) => run.snapshot.state === RunState.InProgress).length;
+    const trackedActiveCount = tracked.filter((run) =>
+      observedRunState(run.snapshot, nowMs) === RunState.InProgress).length;
     const workers = activeWorkerSummary(tracked, nowMs);
-    const trackedQueuedCount = tracked.filter((run) => run.snapshot.state === RunState.Queued).length;
+    const trackedQueuedCount = tracked.filter((run) =>
+      observedRunState(run.snapshot, nowMs) === RunState.Queued).length;
     const trackedCompletedCount = tracked.filter((run) => run.snapshot.state === RunState.Completed).length;
     const rows = buildDashboard(
       this.tracker,
@@ -530,11 +597,16 @@ export class Monitor {
     if (!tracked) return null;
     const nowEpoch = Math.floor(Date.now() / 1000);
     const run = tracked.snapshot;
+    const effectiveState = observedRunState(run, Date.now());
+    const analyzed = effectiveState === run.state ? run : { ...run, state: effectiveState };
     return {
       ...run,
+      providerState: run.state,
+      state: effectiveState,
+      observedRunningJobs: observedRunningJobs(run, Date.now()).length,
       acknowledged: tracked.acknowledged,
       manualWatch: tracked.manualWatch,
-      analysis: this.analyzer.analyzeRun(run, nowEpoch),
+      analysis: this.analyzer.analyzeRun(analyzed, nowEpoch),
       jobs: (run.jobs || []).map((job) => ({
         ...job,
         analysis: this.analyzer.analyzeJob(run, job, nowEpoch),
