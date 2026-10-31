@@ -208,6 +208,24 @@ approximately 39 minutes of workflow time remaining even if the currently
 running sanitizer step has just 10 minutes left. S-ETA is not an estimate
 for completing all remaining steps/jobs.
 
+## Focus usability refinements and active workers
+
+Focus grid headings are centred and cell contents are vertically centred.
+A locked column has a slightly darker header (no lock glyph), and columns
+can now shrink to **40px**. Duration strings are compact (e.g. `1h16m`);
+the combined confidence/quantity field reads `HIGH/18`.
+
+A new cell-overflow dropdown replaces the wrap checkbox, offering **wrap**,
+**clip with ellipsis**, and **clip without ellipsis** (flush against the cell
+divider). Horizontal scrollbars are only enabled when measured column widths
+actually exceed available space, rather than flashing during every refresh.
+
+The surface summary now starts with **active workers**: the number of known
+in-progress GitHub Actions jobs occupying runner slots, not the number of
+workflows. When job detail is missing or stale the displayed value has a `+`
+suffix, indicating a confirmed lower bound rather than pretending the worker
+count is complete. See [Focus grid](docs/FOCUS_GRID.md).
+
 ## Execution-only ETA and advanced Focus columns
 
 CISmonWEB now separates workflow queue waiting from actual job execution.

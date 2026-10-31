@@ -20,7 +20,17 @@ export const GRID_FIELDS = Object.freeze([
   ["branch", "BRANCH", 210],
   ["event", "EVENT", 110]
 ]);
+export const GRID_MIN_WIDTH = 40;
 export const GRID_FIELD_SET = new Set(GRID_FIELDS.map(([id]) => id));
+export const GRID_OVERFLOW_MODES = Object.freeze([
+  ["ellipsis", "Clip with ellipsis"],
+  ["hard_clip", "Clip without ellipsis (to border)"],
+  ["wrap", "Wrap"]
+]);
+export function normalizeGridOverflowMode(mode, previousWrap = false) {
+  return GRID_OVERFLOW_MODES.some(([id]) => id === mode)
+    ? mode : (previousWrap ? "wrap" : "ellipsis");
+}
 export const GRID_LABEL = Object.freeze(Object.fromEntries(GRID_FIELDS.map(([id, label]) => [id, label])));
 export const GRID_DEFAULT_WIDTH = Object.freeze(Object.fromEntries(GRID_FIELDS.map(([id, , width]) => [id, width])));
 export const GRID_DATE_FORMATS = Object.freeze([
@@ -97,7 +107,7 @@ export function normalizeGridWidths(input) {
   for (const [field, width] of Object.entries(input)) {
     if (!GRID_FIELD_SET.has(field)) continue;
     const numeric = Number(width);
-    if (Number.isFinite(numeric)) widths[field] = Math.max(48, Math.min(750, Math.round(numeric)));
+    if (Number.isFinite(numeric)) widths[field] = Math.max(GRID_MIN_WIDTH, Math.min(750, Math.round(numeric)));
   }
   return widths;
 }
@@ -132,6 +142,8 @@ export function normalizePane(input = {}, index = 0, parent = {}) {
     gridFields: normalizeGridFields(input.gridFields, parent.gridFields || DEFAULT_FOCUS_COLUMNS),
     gridWidths: normalizeGridWidths(input.gridWidths),
     gridWrap: boolean(input.gridWrap, parent.gridWrap ?? false),
+    gridOverflowMode: normalizeGridOverflowMode(input.gridOverflowMode,
+      boolean(input.gridWrap, parent.gridWrap ?? false)),
     gridSortBy: normalizeGridSortBy(input.gridSortBy ?? (left ? "priority" : "attention")),
     gridSortDir: input.gridSortDir === "asc" ? "asc" : "desc",
     gridSortSecondaryBy: normalizeGridSortBy(input.gridSortSecondaryBy) === "priority"

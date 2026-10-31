@@ -1,5 +1,5 @@
 import {
-  GRID_DEFAULT_WIDTH, GRID_LABEL, gridFieldRaw, formatGridDate,
+  GRID_DEFAULT_WIDTH, GRID_LABEL, GRID_MIN_WIDTH, gridFieldRaw, formatGridDate,
   normalizeGridFields, reorderGridFields, sortGridRows
 } from "/focus-grid.js";
 
@@ -13,8 +13,8 @@ const make = (tag, className = "", text) => {
 function duration(ms) {
   if (!Number.isFinite(ms) || ms <= 0) return "—";
   const s = Math.floor(ms / 1000), m = Math.floor(s / 60), h = Math.floor(m / 60);
-  return h ? h + "h " + (m % 60) + "m" :
-    m ? m + "m " + (s % 60) + "s" : s + "s";
+  return h ? h + "h" + (m % 60) + "m" :
+    m ? m + "m" + (s % 60) + "s" : s + "s";
 }
 function display(row, field, options) {
   const raw = gridFieldRaw(row, field);
@@ -27,7 +27,7 @@ function display(row, field, options) {
     case "updated": return formatGridDate(raw, options.gridUpdatedFormat, options.gridUpdatedPattern);
     case "confidence": return row.confidence || "none";
     case "qty": return String(row.baselineSamples || 0);
-    case "confQty": return (row.confidence || "none").toUpperCase() + " / " +
+    case "confQty": return (row.confidence || "none").toUpperCase() + "/" +
       (row.baselineSamples || 0);
     case "stage": return raw || "workflow";
     case "attention": return String(raw).replaceAll("_", " ");
@@ -40,12 +40,21 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
   const fields = normalizeGridFields(options.gridFields);
   const wrap = make("div", "focus-grid-wrap");
   const table = make("table", "focus-grid-table");
-  table.dataset.wrap = options.gridWrap ? "wrap" : "clip";
+  table.dataset.wrap = options.gridOverflowMode ||
+    (options.gridWrap ? "wrap" : "ellipsis");
   table.setAttribute("aria-label", key + " workflows");
   const widths = { ...GRID_DEFAULT_WIDTH, ...(options.gridWidths || {}) };
   const locked = new Set(options.gridLockedWidths || []);
   const total = fields.reduce((acc, field) => acc + widths[field], 0);
-  table.style.width = Math.max(420, total) + "px";
+  table.style.width = total + "px";
+  // New grids begin with horizontal overflow hidden. Enable the scrollbar
+  // after measuring the attached viewport only if columns actually overflow.
+  wrap.dataset.horizontal = "fit";
+  const usedWidth = () => fields.reduce((sum, field) => sum + widths[field], 0);
+  function updateHorizontalOverflow() {
+    if (!wrap.isConnected) return;
+    wrap.dataset.horizontal = usedWidth() > wrap.clientWidth + 1 ? "scroll" : "fit";
+  }
   const colGroup = make("colgroup");
   const cols = new Map();
   for (const field of fields) {
@@ -67,7 +76,7 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
     const sort = make("button", "focus-sort", GRID_LABEL[field] +
       (options.gridSortBy === field ? (options.gridSortDir === "asc" ? " ↑" : " ↓") :
         secondary ? (options.gridSortSecondaryDir === "asc" ? " ²↑" : " ²↓") : "") +
-      (locked.has(field) ? " 🔒" : ""));
+      "");
     sort.type = "button";
     sort.title = (field === "remaining"
       ? "Whole workflow ETA based on run-level history; S-ETA is the active stage only. "
@@ -110,10 +119,11 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
     handle.dataset.locked = String(locked.has(field));
     function resizeBy(delta) {
       if (locked.has(field)) return;
-      const target = Math.max(48, Math.min(750, widths[field] + delta));
+      const target = Math.max(GRID_MIN_WIDTH, Math.min(750, widths[field] + delta));
       widths[field] = target;
       cols.get(field).style.width = target + "px";
-      table.style.width = fields.reduce((sum, f) => sum + widths[f], 0) + "px";
+      table.style.width = usedWidth() + "px";
+      updateHorizontalOverflow();
     }
     handle.addEventListener("pointerdown", event => {
       if (event.button !== 0) return;
@@ -189,7 +199,8 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
   const top = callbacks.getScrollTop?.() || 0;
   requestAnimationFrame(() => {
     if (!wrap.isConnected) return;
-    wrap.scrollLeft = left;
+    updateHorizontalOverflow();
+    if (wrap.dataset.horizontal === "scroll") wrap.scrollLeft = left;
     wrap.scrollTop = top;
   });
   wrap.addEventListener("scroll", () => {

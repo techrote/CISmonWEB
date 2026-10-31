@@ -26,6 +26,8 @@ export class RunTracker {
       const merged = { ...snapshot };
       if ((!merged.jobs || merged.jobs.length === 0) && existing.snapshot.jobs?.length) {
         merged.jobs = existing.snapshot.jobs;
+        merged.jobsFetchedAtMs = existing.snapshot.jobsFetchedAtMs || 0;
+        merged.jobsCoverageComplete = existing.snapshot.jobsCoverageComplete !== false;
       }
       const leftQueue = existing.snapshot.state === RunState.Queued &&
         merged.state === RunState.InProgress;

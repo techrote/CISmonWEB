@@ -871,11 +871,11 @@ body.surface-hide-chrome main { padding-top: 10px; }
 .focus-grid-wrap {
   max-width: 100%;
   width: 100%;
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: auto;
   max-height: min(77vh, 950px);
   border: 1px solid var(--line);
-  scrollbar-gutter: stable;
+  scrollbar-gutter: auto;
   scrollbar-color: var(--line) var(--panel);
 }
 .focus-grid-table {
@@ -894,7 +894,8 @@ body.surface-hide-chrome main { padding-top: 10px; }
   background: var(--panel-2);
   border-bottom: 1px solid var(--line);
   border-right: 1px solid var(--line-soft);
-  text-align: left;
+  text-align: center;
+  vertical-align: middle;
   font-size: 10px;
   font-weight: 500;
   padding: 0;
@@ -906,8 +907,8 @@ body.surface-hide-chrome main { padding-top: 10px; }
   border: none;
   display: block;
   width: 100%;
-  text-align: left;
-  padding: 9px 12px 9px 8px;
+  text-align: center;
+  padding: 9px 10px;
   cursor: pointer;
   color: var(--muted);
   font-size: inherit;
@@ -945,7 +946,7 @@ body.surface-hide-chrome main { padding-top: 10px; }
   border-bottom: 1px solid var(--line-soft);
   border-right: 1px solid var(--line-soft);
   padding: 7px 8px;
-  vertical-align: top;
+  vertical-align: middle;
   overflow: hidden;
 }
 .focus-grid-value { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1114,13 +1115,34 @@ body.minimal-only .focus-vert-pane .focus-grid-wrap {
 /* Focus grid: locked widths are immutable until Ctrl+click unlocks the
    header/divider; secondary sort has a distinct "²" marker in header text. */
 .focus-grid-head[data-locked="true"] {
-  background: color-mix(in srgb, var(--running) 9%, var(--panel-2));
+  background: color-mix(in srgb, var(--bg) 60%, var(--panel-2));
 }
 .focus-grid-head[data-locked="true"] .focus-resize-handle {
   cursor: not-allowed;
-  background: color-mix(in srgb, var(--running) 18%, transparent);
-  border-right: 2px solid var(--running);
+  background: color-mix(in srgb, var(--bg) 40%, var(--panel-2));
+  border-right: 1px solid var(--line);
 }
 .focus-grid-head[data-locked="true"] .focus-sort {
   color: var(--text);
+}
+
+
+/* Horizontal scrollbars appear only when measured column widths exceed the
+   viewport, instead of flashing during every 2s Focus DOM refresh. */
+.focus-grid-wrap[data-horizontal="scroll"] { overflow-x: auto; }
+.focus-grid-wrap[data-horizontal="fit"] { overflow-x: hidden; }
+
+/* Third overflow mode: show every character that fits, directly against the
+   column divider with no reserved padding and no ellipsis glyph. */
+.focus-grid-table[data-wrap="hard_clip"] .focus-grid-cell {
+  padding-inline: 0;
+}
+.focus-grid-table[data-wrap="hard_clip"] .focus-grid-value {
+  text-overflow: clip;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.focus-grid-table[data-wrap="hard_clip"] .focus-grid-head,
+.focus-grid-table[data-wrap="hard_clip"] .focus-sort {
+  text-overflow: clip;
 }

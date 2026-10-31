@@ -27,6 +27,33 @@ These settings persist separately for Focus, Dense and each Dual/Vert pane.
 
 See [EXECUTION_ETA_GRID.md](EXECUTION_ETA_GRID.md) for details.
 
+## Overflow, column presentation and active workers
+
+Column headings are centred; all table cell text is vertically centred.
+Ctrl-click still locks widths but the lock indication is a **darker header**,
+not an additional padlock character. Minimum width is 40px. Duration
+strings and the combined CONF/QTY field are compact (e.g. `1h16m`,
+`HIGH/18`).
+
+The old Wrap checkbox is now a **Cell overflow** dropdown with:
+1. Clip with ellipsis — truncate with a visible ellipsis glyph.
+2. Clip without ellipsis (to border) — use the entire column width, with
+   zero inline padding and no ellipsis glyph.
+3. Wrap — wrap long values onto additional lines.
+
+Existing saved `gridWrap` booleans migrate transparently. Focus, Dense,
+Dual and Vert panes can choose independent modes. The horizontal scrollbar
+is enabled only after the columns exceed the measured content width, so
+it does not flash on every refresh when all columns fit.
+
+The summary now begins with **active workers**, meaning the count of
+distinct currently in-progress Actions jobs with fresh job detail. This
+represents occupied runner slots, not running workflows. The count can be
+smaller than the number of workflows or larger when workflows have multiple
+parallel jobs. A `+` indicates a lower bound because one or more running
+workflows are still missing recent job detail. This indicator uses existing
+polling and does not add any API calls.
+
 ## Field and column controls
 
 The Surface editor includes the **Focus grid** area for drag-reordered column chips, field visibility, Wrap versus Clip, sorting and direction. On the displayed grid:

@@ -1,4 +1,5 @@
 import { RuntimeAnalyzer } from "./core/analyzer.js";
+import { activeWorkerSummary } from "./worker-summary.js";
 import { buildDashboard } from "./core/dashboard.js";
 import { globMatch } from "./core/glob.js";
 import { PollPolicy } from "./core/poll-policy.js";
@@ -337,7 +338,10 @@ export class Monitor {
 
     const detailed = {
       ...run,
-      jobs: (response.json.jobs || []).map(parseJob)
+      jobs: (response.json.jobs || []).map(parseJob),
+      jobsFetchedAtMs: Date.now(),
+      jobsCoverageComplete: (Number(response.json.total_count) || 0) <=
+        (response.json.jobs || []).length
     };
 
     const existing = this.tracker.find(detailed.repository, detailed.runId);
@@ -478,6 +482,7 @@ export class Monitor {
       oldestLiveSummaryAgeMs !== null && oldestLiveSummaryAgeMs > LIVE_FRESHNESS_WARNING_MS ? "stale" :
       (ongoingDetailFailures > 0 || freshError) ? "degraded" : "online";
     const trackedActiveCount = tracked.filter((run) => run.snapshot.state === RunState.InProgress).length;
+    const workers = activeWorkerSummary(tracked, nowMs);
     const trackedQueuedCount = tracked.filter((run) => run.snapshot.state === RunState.Queued).length;
     const trackedCompletedCount = tracked.filter((run) => run.snapshot.state === RunState.Completed).length;
     const rows = buildDashboard(
@@ -505,6 +510,7 @@ export class Monitor {
       dueRepositoryCount,
       trackedRunCount: tracked.length,
       trackedActiveCount,
+      ...workers,
       trackedQueuedCount,
       trackedCompletedCount,
       dashboardCandidateCount: rows.length,
