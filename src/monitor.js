@@ -480,6 +480,7 @@ export class Monitor {
       oldestLiveSummaryAgeMs !== null && oldestLiveSummaryAgeMs > LIVE_FRESHNESS_WARNING_MS ? "stale" :
       (ongoingDetailFailures > 0 || freshError) ? "degraded" : "online";
     const trackedActiveCount = tracked.filter((run) => run.snapshot.state === RunState.InProgress).length;
+    const workers = activeWorkerSummary(tracked, nowMs);
     const trackedQueuedCount = tracked.filter((run) => run.snapshot.state === RunState.Queued).length;
     const trackedCompletedCount = tracked.filter((run) => run.snapshot.state === RunState.Completed).length;
     const rows = buildDashboard(
