@@ -461,7 +461,7 @@ function renderDashboard(state) {
     suspicious: displayedRows.filter((row) => row.attention === "suspicious").length
   };
   const workerCount = Number(state.activeWorkers || 0);
-  const workerLabel = workerCount + (state.activeWorkersPartial ? "+" : "") + " workers";
+  const workerLabel = workerCount + (state.activeWorkersPartial ? "+" : "") + " active workers";
   elements.surfaceSummary.title = state.activeWorkersPartial
     ? workerCount + " confirmed occupied runner slots; job detail received for " +
       (state.workerCoverageRuns || 0) + "/" + (state.workerTotalRunningRuns || 0) +
