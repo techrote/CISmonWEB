@@ -195,6 +195,19 @@ status and rate-limit backoff. The `/api/state` JSON endpoint exposes
 A full repository sweep is complete only after a successful response from
 each repository; attempted-but-failed requests do not count as scanned.
 
+## Workflow ETA versus current-stage ETA
+
+Focus now treats **ETA**, **MED**, **RATIO**, **CONF** and **QTY** as
+**whole-workflow** measurements matching the Run Detail analysis. The
+current job or step can still contribute anomaly/stall warnings, but cannot
+silently replace the run-level estimate. The optional **S-ETA** grid field
+shows remaining time in the **current step/job only**.
+
+For example, a 79-minute workflow median after 40 minutes elapsed means
+approximately 39 minutes of workflow time remaining even if the currently
+running sanitizer step has just 10 minutes left. S-ETA is not an estimate
+for completing all remaining steps/jobs.
+
 ## Execution-only ETA and advanced Focus columns
 
 CISmonWEB now separates workflow queue waiting from actual job execution.
