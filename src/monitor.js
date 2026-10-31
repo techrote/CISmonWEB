@@ -508,6 +508,7 @@ export class Monitor {
       dueRepositoryCount,
       trackedRunCount: tracked.length,
       trackedActiveCount,
+      ...workers,
       trackedQueuedCount,
       trackedCompletedCount,
       dashboardCandidateCount: rows.length,
