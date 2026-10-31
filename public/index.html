@@ -351,9 +351,13 @@
         <section class="form-section" id="focusGridSection">
           <h3>Focus grid · fields and dimensions</h3>
           <div class="form-grid three">
-            <label class="check-field">
-              <input id="surfaceGridWrap" type="checkbox">
-              <span>Wrap cells (unchecked: clip with ellipsis)</span>
+            <label class="field">
+              <span>Cell overflow</span>
+              <select id="surfaceGridOverflow">
+                <option value="ellipsis">Clip with ellipsis</option>
+                <option value="hard_clip">Clip without ellipsis (to border)</option>
+                <option value="wrap">Wrap</option>
+              </select>
             </label>
             <label class="field">
               <span>Sort by</span>
@@ -449,7 +453,13 @@
               <option value="normal">Normal+</option><option value="interesting">Interesting+</option>
               <option value="suspicious">Suspicious+</option><option value="action_required">Action required</option>
             </select></label>
-            <label class="check-field"><input id="dualPaneWrap" type="checkbox"><span>Wrap pane cells</span></label>
+            <label class="field"><span>Cell overflow</span>
+              <select id="dualPaneOverflow">
+                <option value="ellipsis">Clip with ellipsis</option>
+                <option value="hard_clip">Clip without ellipsis (to border)</option>
+                <option value="wrap">Wrap</option>
+              </select>
+            </label>
             <label class="field"><span>Repository globs</span><textarea id="dualPaneRepositories" rows="3" placeholder="techrote/*"></textarea></label>
             <label class="field"><span>Workflow globs</span><textarea id="dualPaneWorkflows" rows="3"></textarea></label>
             <label class="field"><span>Event globs</span><textarea id="dualPaneEvents" rows="3"></textarea></label>
