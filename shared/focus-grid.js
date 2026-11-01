@@ -15,6 +15,7 @@ export const GRID_FIELDS = Object.freeze([
   ["confidence", "CONF", 70],
   ["qty", "QTY", 58],
   ["confQty", "CONF/QTY", 120],
+  ["checks", "CHECKS", 138],
   ["added", "ADDED", 120],
   ["updated", "UPDATED", 120],
   ["branch", "BRANCH", 210],
@@ -101,6 +102,12 @@ export function normalizeGridFields(input, fallback = DEFAULT_FOCUS_COLUMNS) {
   }).slice(0, GRID_FIELDS.length);
 }
 
+export function normalizeGridRowHeight(value) {
+  const size = Number(value);
+  if (!Number.isFinite(size) || size <= 0) return 0;
+  return Math.min(160, Math.max(18, Math.round(size)));
+}
+
 export function normalizeGridWidths(input) {
   const widths = {};
   if (!input || typeof input !== "object" || Array.isArray(input)) return widths;
@@ -141,6 +148,7 @@ export function normalizePane(input = {}, index = 0, parent = {}) {
     density: ["comfortable", "compact", "ultra"].includes(input.density) ? input.density : "compact",
     gridFields: normalizeGridFields(input.gridFields, parent.gridFields || DEFAULT_FOCUS_COLUMNS),
     gridWidths: normalizeGridWidths(input.gridWidths),
+    gridRowHeight: normalizeGridRowHeight(input.gridRowHeight ?? parent.gridRowHeight ?? 0),
     gridWrap: boolean(input.gridWrap, parent.gridWrap ?? false),
     gridOverflowMode: normalizeGridOverflowMode(input.gridOverflowMode,
       boolean(input.gridWrap, parent.gridWrap ?? false)),
@@ -186,6 +194,7 @@ export function gridFieldRaw(row, field) {
     case "stageRemaining": return row.stageEstimatedRemainingMs || 0;
     case "confidence": return ["none", "low", "medium", "high"].indexOf(row.confidence);
     case "qty": return row.baselineSamples || 0;
+    case "checks": return row.checks?.total ? row.checks.passed / row.checks.total : -1;
     case "confQty": return (["none", "low", "medium", "high"].indexOf(row.confidence) + 1) * 100000 +
       (row.baselineSamples || 0);
     case "added": return row.createdAtEpoch || 0;
