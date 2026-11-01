@@ -739,16 +739,7 @@ export class Monitor {
       );
 
       if (this.normalRequestsSinceCheck >= CHECK_SERVICE_INTERVAL) {
-        const remainingCandidate = this.nextActivityCandidate(nowMs);
-      if (remainingCandidate) {
-        await this.probeActivityCandidate(remainingCandidate);
-        this.normalRequestsSinceActivityProbe = 0;
-        this.lastSchedulerAction = "activity-probe:" + remainingCandidate.fullName;
-        this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
-        return;
-      }
-
-      const target = this.dueCheckTarget(nowMs);
+        const target = this.dueCheckTarget(nowMs);
         if (target) {
           await this.pollCheckTarget(target);
           this.normalRequestsSinceCheck = 0;
@@ -779,6 +770,15 @@ export class Monitor {
 
       if (active) {
         await this.serviceLiveDetail(active, nowMs);
+        return;
+      }
+
+      const remainingCandidate = this.nextActivityCandidate(nowMs);
+      if (remainingCandidate) {
+        await this.probeActivityCandidate(remainingCandidate);
+        this.normalRequestsSinceActivityProbe = 0;
+        this.lastSchedulerAction = "activity-probe:" + remainingCandidate.fullName;
+        this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
         return;
       }
 
