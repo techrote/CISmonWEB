@@ -140,10 +140,24 @@ textarea { resize: vertical; }
   display: flex; align-items: stretch; border: 1px solid var(--line); background: var(--panel);
 }
 .telemetry[hidden] { display: none; }
-.telemetry > div { min-width: 72px; padding: 8px 9px; border-right: 1px solid var(--line); }
+.telemetry > div {
+  min-width: 72px;
+  padding: 8px 9px;
+  border-right: 1px solid var(--line);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
 .telemetry > div:last-child { border-right: 0; }
 .label, .eyebrow {
   display: block; color: var(--dim); font-size: 9px; letter-spacing: 0.12em; margin-bottom: 4px;
+}
+.telemetry .label,
+.telemetry strong {
+  width: 100%;
+  text-align: center;
 }
 .telemetry strong { font-size: 12px; font-weight: 700; }
 .toolbar { display: flex; gap: 7px; flex-wrap: wrap; justify-content: end; }
