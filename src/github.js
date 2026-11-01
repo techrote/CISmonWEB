@@ -126,6 +126,7 @@ export function parseRun(value, repository) {
     workflowName: value.name || "workflow",
     runId: Number(value.id || 0),
     runNumber: Number(value.run_number || 0),
+    runAttempt: Number(value.run_attempt || 1),
     branch: value.head_branch || "",
     event: value.event || "",
     headSha: value.head_sha || "",
