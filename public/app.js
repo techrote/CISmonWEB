@@ -125,7 +125,13 @@ function fieldMeta(row, field) {
     case "stage": return ["CURRENT STAGE", row.stage || "workflow", ""];
     case "state": return ["STATE", displayRunState(row),
       row.providerState !== row.state ? "GitHub: " + row.providerState : ""];
-    case "elapsed": return [row.state === "queued" ? "WAITING" : "ELAPSED", formatDuration(row.elapsedMs), ""];
+    case "elapsed": return [
+      row.state === "queued" ? "WAITING" : "ELAPSED",
+      row.state === "queued" ? formatDuration(row.waitingMs) :
+        row.elapsedLowerBound ? "≥" + (row.elapsedMs ? formatDuration(row.elapsedMs) : "0s") :
+          formatDuration(row.elapsedMs),
+      row.elapsedLowerBound ? "since first observed running (lower bound)" : ""
+    ];
     case "baseline": return ["MEDIAN", formatDuration(row.baselineMedianMs), row.baselineMedianMs ? row.confidence + " baseline" : "no baseline"];
     case "ratio": return ["RATIO", row.ratio ? row.ratio.toFixed(2) + "×" : "—", row.ratio >= 1.3 ? "above expected" : ""];
     case "remaining": return ["ETA", formatDuration(row.estimatedRemainingMs), row.possiblyStalled ? "possible stall" : ""];
