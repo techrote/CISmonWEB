@@ -1,6 +1,7 @@
 import { DEFAULT_FOCUS_COLUMNS, FOCUS_VERT_DEFAULT, normalizeDualPanes,
   normalizeGridFields, normalizeGridSortBy, normalizeGridWidths,
-  normalizeVertCount, normalizeVertPanes, normalizeGridRowHeight, normalizeGridLockedWidths,
+  normalizeVertCount, normalizeVertPanes, normalizeGridRowHeight,
+  normalizeGridRowLines, normalizeGridLockedWidths,
   normalizeGridDateFormat, normalizeGridDatePattern, normalizeGridOverflowMode } from "./focus-grid.js";
 
 const LAYOUTS = new Set(["rows", "cards", "table", "lanes", "focus_dual", "focus_vert", "signal", "afterimage", "lanes_plus", "hungry_margins"]);
@@ -409,6 +410,9 @@ export function normalizeSurface(input = {}, index = 0) {
       fallback.gridFields || DEFAULT_FOCUS_COLUMNS),
     gridWidths: normalizeGridWidths(input.gridWidths),
     gridRowHeight: normalizeGridRowHeight(input.gridRowHeight ?? fallback.gridRowHeight ?? 0),
+    gridRowLines: normalizeGridRowLines(input.gridRowLines,
+      input.gridRowHeight ?? fallback.gridRowHeight ?? 0),
+    gridHeaderOverflowMode: normalizeGridOverflowMode(input.gridHeaderOverflowMode, false),
     gridWrap: bool(input.gridWrap, fallback.gridWrap ?? false),
     gridOverflowMode: normalizeGridOverflowMode(input.gridOverflowMode,
       bool(input.gridWrap, fallback.gridWrap ?? false)),
