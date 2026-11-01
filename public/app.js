@@ -606,11 +606,18 @@ async function pollState() {
     elements.errorBanner.dataset.kind = /HTTP 50[0-9]|request timeout|network request failed/.test(state.lastError || "")
       ? "transient" : "error";
 
+    const pendingActivity = state.repositorySelectionMode === "activity" &&
+      (state.pendingActivityProbeCount || 0) > 0;
     const incomplete = state.scannedRepositoryCount < state.repositoryCount;
     const unfinished = state.pendingSweepCount > 0 ||
       state.attemptedRepositoryCount < state.repositoryCount;
-    elements.scanBanner.hidden = !incomplete;
-    elements.scanBanner.textContent = incomplete
+    elements.scanBanner.hidden = !incomplete && !pendingActivity;
+    elements.scanBanner.textContent = pendingActivity
+      ? "Activity-based discovery: " + state.repositoryCount + "/" +
+        state.candidateRepositoryCount + " repositories admitted; " +
+        state.pendingActivityProbeCount + " awaiting workflow-activity checks (age " +
+        (config.activeAgeDays || 7) + " days)."
+      : incomplete
       ? unfinished
         ? "Repository sweep " + state.scannedRepositoryCount + "/" + state.repositoryCount +
           " confirmed · " + state.pendingSweepCount + " pending" +
@@ -763,6 +770,8 @@ async function openSettings() {
   $("#githubToken").value = "";
   $("#githubOwner").value = config.githubOwner || "";
   $("#maxRepositories").value = config.maxRepositories;
+  $("#repositorySelectionMode").value = config.repositorySelectionMode || "activity";
+  $("#activeAgeDays").value = config.activeAgeDays || 7;
   $("#historyDepth").value = config.historyDepth;
   $("#backfillRunsPerRepo").value = config.backfillRunsPerRepo;
   $("#includePatterns").value = (config.includePatterns || []).join("\n");
@@ -1257,6 +1266,8 @@ elements.settingsForm.addEventListener("submit", async (event) => {
         clearGithubToken: $("#clearGithubToken").checked,
         githubOwner: $("#githubOwner").value,
         maxRepositories: Number($("#maxRepositories").value),
+        repositorySelectionMode: $("#repositorySelectionMode").value,
+        activeAgeDays: Number($("#activeAgeDays").value),
         historyDepth: Number($("#historyDepth").value),
         backfillRunsPerRepo: Number($("#backfillRunsPerRepo").value),
         includePatterns: $("#includePatterns").value,
