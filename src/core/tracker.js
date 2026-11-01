@@ -58,9 +58,9 @@ export class RunTracker {
       // A run first discovered already running may have run_started_at equal
       // to created_at and no job timestamps yet. Retain the *observation*
       // time for a conservative, explicitly labelled lower-bound clock.
-      merged.firstObservedRunningAtEpoch = !attemptChanged &&
-        (existing.snapshot.firstObservedRunningAtEpoch ||
-          (runningEvidence ? Math.floor(nowMs / 1000) : 0)) || 0;
+      merged.firstObservedRunningAtEpoch = (
+        !attemptChanged ? existing.snapshot.firstObservedRunningAtEpoch : 0
+      ) || (runningEvidence ? Math.floor(nowMs / 1000) : 0);
       existing.snapshot = merged;
       existing.lastSeenMs = nowMs;
       existing.observedActive ||= incomingActive;
