@@ -46,6 +46,11 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
   table.dataset.wrap = options.gridOverflowMode ||
     (options.gridWrap ? "wrap" : "ellipsis");
   table.setAttribute("aria-label", key + " workflows");
+  const fixedRowHeight = Number(options.gridRowHeight) || 0;
+  table.dataset.fixedRowHeight = fixedRowHeight > 0 ? "true" : "false";
+  if (fixedRowHeight > 0) {
+    table.style.setProperty("--focus-row-height", fixedRowHeight + "px");
+  }
   const widths = { ...GRID_DEFAULT_WIDTH, ...(options.gridWidths || {}) };
   const locked = new Set(options.gridLockedWidths || []);
   const total = fields.reduce((acc, field) => acc + widths[field], 0);
@@ -183,16 +188,41 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
     for (const field of fields) {
       const td = make("td", "focus-grid-cell");
       td.dataset.field = field;
-      const v = display(row, field, options);
-      const value = make("span", "focus-grid-value", v);
-      value.title = field === "state" && row.providerState === "queued" &&
-        row.state === "in_progress"
-        ? v + " — GitHub reports queued; running child jobs were observed" +
-          (row.jobsCoverageComplete ? "" : " (partial job coverage)")
-        : v;
-      if (field === "attention") value.className += " attention-" + row.attention;
-      if (field === "state") value.className += " state-" + row.state;
-      td.append(value);
+      if (field === "checks") {
+        const progress = row.checks;
+        const label = !progress ? "Check data unavailable (no PR head SHA)" :
+          progress.error ? progress.error :
+          "PR head check runs: " + progress.passed + " passed / " +
+          progress.total + " total / " + progress.failed + " failed; " +
+          progress.pending + " pending; " + progress.skipped + " skipped/cancelled" +
+          (progress.complete ? "" : " (incomplete/paginating)");
+        td.title = label;
+        if (!progress || (progress.total === 0 && !progress.fetchedAtMs)) {
+          td.append(make("span", "focus-grid-value", progress?.error ? "—" : "…"));
+        } else {
+          const counters = make("span", "focus-check-progress");
+          counters.setAttribute("aria-label", label);
+          counters.append(
+            make("span", "focus-check-pass", progress.passed),
+            make("span", "focus-check-separator", "/"),
+            make("span", "focus-check-total", String(progress.total) + (progress.complete ? "" : "+")),
+            make("span", "focus-check-separator", "/"),
+            make("span", "focus-check-fail", progress.failed)
+          );
+          td.append(counters);
+        }
+      } else {
+        const v = display(row, field, options);
+        const value = make("span", "focus-grid-value", v);
+        value.title = field === "state" && row.providerState === "queued" &&
+          row.state === "in_progress"
+          ? v + " — GitHub reports queued; running child jobs were observed" +
+            (row.jobsCoverageComplete ? "" : " (partial job coverage)")
+          : v;
+        if (field === "attention") value.className += " attention-" + row.attention;
+        if (field === "state") value.className += " state-" + row.state;
+        td.append(value);
+      }
       tr.append(td);
     }
     body.append(tr);
