@@ -65,7 +65,7 @@ test("queued GitHub parent with running children is displayed as executing and o
   const m = monitor(async path => {
     calls.push(path);
     return response({
-      total_count: 165, jobs: path.includes("page=1") ? first : second
+      total_count: 165, jobs: path.endsWith("&page=1") ? first : second
     });
   });
   const r = run();
