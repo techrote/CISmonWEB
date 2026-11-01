@@ -280,6 +280,12 @@ export class Monitor {
       newestUpdated = Math.max(newestUpdated, run.updatedAtEpoch);
 
       const existing = this.tracker.find(run.repository, run.runId);
+      if (existing && Number(existing.snapshot.runAttempt || 1) !==
+          Number(run.runAttempt || 1)) {
+        const key = detailKey(run);
+        this.liveJobScans.delete(key);
+        this.activeDetailNextMs.set(key, 0);
+      }
       if (shouldTrackSummaryRun(run, Boolean(existing), nowMs, TERMINAL_IMPORT_LOOKBACK_MS)) {
         this.tracker.upsert(run, nowMs);
       }
