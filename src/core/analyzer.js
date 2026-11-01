@@ -27,7 +27,11 @@ export function runExecutionStartEpoch(run) {
   // Legacy normalized fixtures (and earlier-source records) only supplied
   // startedAtEpoch; new GitHub rows always include createdAtEpoch explicitly.
   if (!created && Number(run.startedAtEpoch || 0) > 0) return Number(run.startedAtEpoch);
-  return provisional > 0 && !created ? provisional : 0;
+  if (provisional > 0 && !created) return provisional;
+  if (run.state === RunState.InProgress) {
+    return Number(run.firstObservedRunningAtEpoch || 0);
+  }
+  return 0;
 }
 
 export function runExecutionEndEpoch(run) {
@@ -36,6 +40,18 @@ export function runExecutionEndEpoch(run) {
     .filter(value => value > 0);
   if (finishedJobs.length) return Math.max(...finishedJobs);
   return Number(run.updatedAtEpoch || 0);
+}
+
+// When the only execution evidence is a local observation, duration is a
+// lower bound. Do not mistake it for a reliable start or train ETA from it.
+export function isObservedOnlyExecutionStart(run) {
+  if (run.state !== RunState.InProgress) return false;
+  const hasStartedJob = (run.jobs || []).some(job => Number(job.startedAtEpoch || 0) > 0);
+  return !hasStartedJob &&
+    !Number(run.observedStartedAtEpoch || 0) &&
+    !(Number(run.runStartedAtEpoch || 0) > Number(run.createdAtEpoch || 0)) &&
+    !!Number(run.firstObservedRunningAtEpoch || 0) &&
+    !!Number(run.createdAtEpoch || 0);
 }
 
 export function runExecutionElapsedMs(run, nowEpoch) {
@@ -136,10 +152,24 @@ export class RuntimeAnalyzer {
     if (run.state === RunState.Queued) {
       return this.analyzeQueuedRun(run, runQueueWaitingMs(run, nowEpoch));
     }
-    return this.analyze(
+    const analyzed = this.analyze(
       baselineKey.run(run), elapsed,
       run.state === RunState.Completed, run.conclusion
     );
+    if (isObservedOnlyExecutionStart(run)) {
+      analyzed.elapsedLowerBound = true;
+      // An observed-only timer counts time since CISmon noticed the workflow,
+      // not total execution. It must not feed a false remaining ETA or stall.
+      analyzed.estimatedRemainingMs = 0;
+      analyzed.ratio = 0;
+      analyzed.z = 0;
+      analyzed.possiblyStalled = false;
+      if (analyzed.attention !== AttentionLevel.ActionRequired) {
+        analyzed.attention = AttentionLevel.Normal;
+      }
+      analyzed.reason = "execution elapsed is a lower bound since first observation";
+    }
+    return analyzed;
   }
 
   analyzeJob(run, job, nowEpoch) {
