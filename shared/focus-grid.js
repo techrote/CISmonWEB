@@ -164,6 +164,9 @@ export function normalizePane(input = {}, index = 0, parent = {}) {
     gridWrap: boolean(input.gridWrap, parent.gridWrap ?? false),
     gridOverflowMode: normalizeGridOverflowMode(input.gridOverflowMode,
       boolean(input.gridWrap, parent.gridWrap ?? false)),
+    gridBreakAfterSeparators: boolean(
+      input.gridBreakAfterSeparators, parent.gridBreakAfterSeparators ?? true
+    ),
     gridSortBy: normalizeGridSortBy(input.gridSortBy ?? (left ? "priority" : "attention")),
     gridSortDir: input.gridSortDir === "asc" ? "asc" : "desc",
     gridSortSecondaryBy: normalizeGridSortBy(input.gridSortSecondaryBy) === "priority"
