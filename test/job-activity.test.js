@@ -242,3 +242,24 @@ test("duplicate job IDs are counted once; unknown in-progress IDs force partial 
   assert.equal(counts.activeWorkers,0);
   assert.equal(counts.activeWorkersPartial,true);
 });
+
+test("a new GitHub run attempt cannot inherit running jobs from its previous attempt", () => {
+  const now = Date.now();
+  const tracker = new RunTracker();
+  const first = run({
+    runAttempt: 1, jobsFetchedAtMs: now, jobsCoverageComplete: true,
+    jobs: [{ id: 919, state: RunState.InProgress }]
+  });
+  tracker.upsert(first, now);
+  assert.equal(activeWorkerSummary(tracker.all(), now).activeWorkers, 1);
+
+  tracker.upsert({ ...first, runAttempt: 2, jobs: [] }, now + 1000);
+  const next = tracker.find(first.repository, first.runId).snapshot;
+  assert.equal(next.state, RunState.Queued);
+  assert.equal(next.runAttempt, 2);
+  assert.deepEqual(next.jobs, []);
+  assert.equal(next.jobsFetchedAtMs, 0);
+  assert.equal(observedRunState(next, now + 1000), RunState.Queued);
+  assert.equal(activeWorkerSummary(tracker.all(), now + 1000).activeWorkers, 0);
+  assert.equal(activeWorkerSummary(tracker.all(), now + 1000).activeWorkersPartial, true);
+});
