@@ -1,4 +1,5 @@
 import { RuntimeAnalyzer } from "./core/analyzer.js";
+import { checkTarget, summarizeCheckRuns } from "./check-summary.js";
 import { activeWorkerSummary, observedRunningJobs, observedRunState } from "./worker-summary.js";
 import { buildDashboard } from "./core/dashboard.js";
 import { globMatch } from "./core/glob.js";
@@ -27,6 +28,13 @@ const DASHBOARD_CANDIDATE_LIMIT = 4096;
 const TERMINAL_IMPORT_LOOKBACK_MS = 3600000;
 const MAX_JOB_DETAIL_PAGES = 20;
 const JOB_PAGE_SIZE = 100;
+const CHECK_PAGE_SIZE = 100;
+const MAX_CHECK_PAGES = 10;
+const MAX_CHECK_TARGETS = 80;
+const CHECK_ACTIVE_REFRESH_MS = 90000;
+const CHECK_FINISHED_REFRESH_MS = 10 * 60000;
+const CHECK_PERMISSION_RETRY_MS = 15 * 60000;
+const CHECK_SERVICE_INTERVAL = 5;
 
 function detailKey(run) {
   return run.repository + "#" + run.runId;
@@ -48,6 +56,8 @@ export class Monitor {
     // One page per scheduler request; continuation pages take precedence over
     // a new scan so active jobs beyond page 1 are discovered promptly.
     this.liveJobScans = new Map();
+    this.checkSnapshots = new Map();
+    this.normalRequestsSinceCheck = 0;
     this.fastSweepQueue = [];
     this.fastSweepReason = "";
     this.activeDetailStreak = 0;
@@ -198,6 +208,8 @@ export class Monitor {
     this.activeDetailNextMs.clear();
     this.activeDetailErrors.clear();
     this.liveJobScans.clear();
+    this.checkSnapshots.clear();
+    this.normalRequestsSinceCheck = 0;
     this.fastSweepQueue = [];
     this.activeDetailStreak = 0;
     this.liveRepoStreak = 0;
@@ -230,6 +242,115 @@ export class Monitor {
     if (this.queuedBackfill.has(key)) return;
     this.queuedBackfill.add(key);
     this.backfill.push({ ...run, jobs: [] });
+  }
+
+  enqueueCheckTarget(run) {
+    const target = checkTarget(run);
+    if (!target) return;
+    // Limit enrichment to currently relevant pull-request activity, not
+    // thousands of historical runs. Check-runs are lower priority than live
+    // workflow summaries and active job detail.
+    const key = target.repository + "@" + target.sha;
+    const cached = this.checkSnapshots.get(key);
+    if (cached) {
+      cached.active ||= run.state !== RunState.Completed;
+      cached.lastSeenMs = Date.now();
+      return;
+    }
+    if (this.checkSnapshots.size >= MAX_CHECK_TARGETS) {
+      const oldest = [...this.checkSnapshots.entries()].sort(
+        (a, b) => a[1].lastSeenMs - b[1].lastSeenMs
+      )[0];
+      if (oldest) this.checkSnapshots.delete(oldest[0]);
+    }
+    this.checkSnapshots.set(key, {
+      ...target, key, page: 1, runs: new Map(), totalCount: null,
+      nextPollMs: 0, fetchedAtMs: 0, active: run.state !== RunState.Completed,
+      lastSeenMs: Date.now(), failures: 0, error: ""
+    });
+  }
+
+  dueCheckTarget(nowMs) {
+    const due = [...this.checkSnapshots.values()].filter(
+      item => item.nextPollMs <= nowMs
+    );
+    // Continue pagination with priority to avoid permanently incomplete
+    // 150+ shard PR checks, but do not take slots away from live jobs.
+    due.sort((a, b) => (a.page > 1 ? 0 : 1) - (b.page > 1 ? 0 : 1) ||
+      a.nextPollMs - b.nextPollMs);
+    return due[0] || null;
+  }
+
+  async pollCheckTarget(target) {
+    const page = target.page;
+    const url = "/repos/" + target.repository + "/commits/" + target.sha +
+      "/check-runs?per_page=" + CHECK_PAGE_SIZE +
+      "&filter=latest&page=" + page;
+    const response = await this.client.get(url);
+    const now = Date.now();
+    this.updateRate(response, now);
+    if (!response.ok || !Array.isArray(response.json?.check_runs)) {
+      target.failures++;
+      target.error = "GitHub checks HTTP " + response.status;
+      // Fine-grained PATs can lack Checks:read. Mark unavailable and back off,
+      // rather than spoiling normal monitor health or fabricating zero passes.
+      const interval = response.status === 403 || response.status === 404
+        ? CHECK_PERMISSION_RETRY_MS :
+          this.policy.nextInterval(false, false, 0, target.failures);
+      target.nextPollMs = now + interval;
+      target.page = 1;
+      target.runs.clear();
+      return false;
+    }
+
+    const raw = response.json.check_runs;
+    const reported = Number(response.json.total_count);
+    if (page === 1) {
+      target.runs.clear();
+      target.totalCount = Number.isSafeInteger(reported) && reported >= 0
+        ? reported : null;
+    } else if (Number.isSafeInteger(reported) && reported >= 0) {
+      target.totalCount = Math.max(target.totalCount || 0, reported);
+    }
+    for (const check of raw) {
+      if (Number.isSafeInteger(check?.id) && check.id > 0) {
+        target.runs.set(check.id, {
+          id: check.id, status: check.status,
+          conclusion: check.conclusion
+        });
+      }
+    }
+    target.fetchedAtMs = now;
+    target.failures = 0;
+    target.error = "";
+    const more = target.totalCount === null
+      ? raw.length === CHECK_PAGE_SIZE
+      : target.runs.size < target.totalCount;
+    if (more && raw.length === CHECK_PAGE_SIZE && page < MAX_CHECK_PAGES) {
+      target.page++;
+      target.nextPollMs = now;
+    } else {
+      target.page = 1;
+      target.nextPollMs = now + (target.active
+        ? CHECK_ACTIVE_REFRESH_MS : CHECK_FINISHED_REFRESH_MS);
+    }
+    return true;
+  }
+
+  checksForRun(run) {
+    const target = checkTarget(run);
+    if (!target) return null;
+    const entry = this.checkSnapshots.get(target.repository + "@" + target.sha);
+    if (!entry) return null;
+    if (!entry.fetchedAtMs) return {
+      passed: 0, failed: 0, pending: 0, skipped: 0,
+      total: 0, seen: 0, complete: false, error: entry.error,
+      fetchedAtMs: 0
+    };
+    const metrics = summarizeCheckRuns(
+      entry.runs.values(), entry.totalCount, entry.page === 1
+    );
+    return { ...metrics, error: entry.error, fetchedAtMs: entry.fetchedAtMs };
   }
 
   async pollRepository(repo, nowMs) {
@@ -278,6 +399,10 @@ export class Monitor {
       const run = parseRun(raw, repo.fullName);
       if (!run.runId) continue;
       newestUpdated = Math.max(newestUpdated, run.updatedAtEpoch);
+      if (run.event === "pull_request" &&
+          (run.state === RunState.InProgress || run.state === RunState.Queued)) {
+        this.enqueueCheckTarget(run);
+      }
 
       const existing = this.tracker.find(run.repository, run.runId);
       if (existing && Number(existing.snapshot.runAttempt || 1) !==
@@ -480,13 +605,26 @@ export class Monitor {
         this.repositories, nowMs, this.liveRepoStreak, MAX_LIVE_REPO_BURST
       );
 
+      if (this.normalRequestsSinceCheck >= CHECK_SERVICE_INTERVAL) {
+        const target = this.dueCheckTarget(nowMs);
+        if (target) {
+          await this.pollCheckTarget(target);
+          this.normalRequestsSinceCheck = 0;
+          this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
+          this.lastSchedulerAction = "check-runs:" + target.repository;
+          return;
+        }
+      }
+
       if (shouldServiceActive(active, repo, this.activeDetailStreak, ACTIVE_DETAIL_BURST_LIMIT)) {
         await this.serviceLiveDetail(active, nowMs);
+        this.normalRequestsSinceCheck++;
         return;
       }
 
       if (repo) {
         await this.pollRepository(repo, nowMs);
+        this.normalRequestsSinceCheck++;
         this.liveRepoStreak = (repo.hadActive || repo.hadQueued)
           ? this.liveRepoStreak + 1 : 0;
         this.activeDetailStreak = 0;
@@ -497,6 +635,15 @@ export class Monitor {
 
       if (active) {
         await this.serviceLiveDetail(active, nowMs);
+        return;
+      }
+
+      const target = this.dueCheckTarget(nowMs);
+      if (target) {
+        await this.pollCheckTarget(target);
+        this.normalRequestsSinceCheck = 0;
+        this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
+        this.lastSchedulerAction = "check-runs:" + target.repository;
         return;
       }
 
@@ -594,7 +741,9 @@ export class Monitor {
       lastError: freshError || !this.providerReady ? this.lastError : "",
       lastErrorAgeMs: freshError ? nowMs - this.lastErrorAtMs : null,
       updatedAt: nowMs,
-      rows
+      rows: rows.map(row => ({
+        ...row, checks: this.checksForRun(row)
+      }))
     };
   }
 
@@ -612,6 +761,7 @@ export class Monitor {
       observedRunningJobs: observedRunningJobs(run, Date.now()).length,
       acknowledged: tracked.acknowledged,
       manualWatch: tracked.manualWatch,
+      checks: this.checksForRun(run),
       analysis: this.analyzer.analyzeRun(analyzed, nowEpoch),
       jobs: (run.jobs || []).map((job) => ({
         ...job,
