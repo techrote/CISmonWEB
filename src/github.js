@@ -130,6 +130,10 @@ export function parseRun(value, repository) {
     branch: value.head_branch || "",
     event: value.event || "",
     headSha: value.head_sha || "",
+    // PR head sha is the check-run target; workflow head_sha can be a
+    // synthetic merge commit rather than the PR's actual head.
+    checkSha: value.pull_requests?.[0]?.head?.sha || value.head_sha || "",
+    prNumber: Number(value.pull_requests?.[0]?.number || 0),
     htmlUrl: value.html_url || "",
     state: parseState(value.status),
     conclusion: parseConclusion(value.conclusion),

@@ -89,6 +89,8 @@ export function buildDashboard(
       branch: run.branch,
       event: run.event,
       headSha: run.headSha,
+      checkSha: run.checkSha || "",
+      prNumber: run.prNumber || 0,
       htmlUrl: run.htmlUrl,
       state: effectiveState,
       providerState: run.state,

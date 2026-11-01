@@ -31,6 +31,21 @@ The anomaly thresholds intentionally match the current CISmon portable core:
     >= 3.00x median or robust-z >= 6.0  -> SUSPICIOUS + possible stall while active
     failed/timed-out/action-required     -> ACTION REQUIRED
 
+## Focus popup and PR check progress
+
+Focus/Focus Dual/Focus Vert now support per-surface and per-pane **Fixed row
+height** (0 = automatic, 18–160px) and centre cell content along both axes.
+When using the minimal browser popup, the worker/activity summary is centred
+in a footer **below** the table, with an Exit surface-only control that does
+not cover cells.
+
+A new optional **CHECKS** column shows passed/total/failed GitHub check
+runs with green/yellow/red numbers, sourced from the PR head commit (not
+workflow steps). Its tooltip also shows pending/skipped and partial
+coverage; the GitHub token needs Checks:read for private repositories.
+This low-priority enrichment is rate-budgeted separately from live workflow
+polling. See [Focus popup and check-progress guide](docs/FOCUS_POPUP_CHECKS.md).
+
 ## Display surfaces
 
 CISmonWEB is not limited to one dashboard layout. Display surfaces are persisted profiles that can be switched from the surface bar without restarting repository discovery or resetting monitoring state.
