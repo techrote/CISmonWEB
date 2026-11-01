@@ -860,7 +860,7 @@ const COPIED_FOCUS_FIELDS = [
   "showInProgress", "showQueued", "showSuccess", "showFailures",
   "showOtherCompleted", "watchedOnly", "stallsOnly", "maxItems",
   "gridFields", "gridWidths", "gridRowLines", "gridOverflowMode",
-  "gridHeaderOverflowMode", "gridSortBy", "gridSortDir",
+  "gridHeaderOverflowMode", "gridBreakAfterSeparators", "gridSortBy", "gridSortDir",
   "gridSortSecondaryBy", "gridSortSecondaryDir", "gridLockedWidths",
   "gridAddedFormat", "gridUpdatedFormat", "gridAddedPattern", "gridUpdatedPattern"
 ];
@@ -936,6 +936,7 @@ function writePaneForm(pane) {
   $("#dualPaneDensity").value = pane.density || "compact";
   $("#dualPaneAttention").value = pane.minAttention;
   $("#dualPaneOverflow").value = pane.gridOverflowMode || (pane.gridWrap ? "wrap" : "ellipsis");
+  $("#dualPaneBreakAfterSeparators").checked = pane.gridBreakAfterSeparators !== false;
   $("#vertPaneHeightUnit").value = pane.heightUnit || "vh";
   $("#vertPaneHeightValue").value = pane.heightValue || 42;
   updateVertHeightRange();
@@ -982,6 +983,7 @@ function commitPaneForm() {
     minAttention: $("#dualPaneAttention").value,
     gridWrap: $("#dualPaneOverflow").value === "wrap",
     gridOverflowMode: $("#dualPaneOverflow").value,
+    gridBreakAfterSeparators: $("#dualPaneBreakAfterSeparators").checked,
     repositoryPatterns: $("#dualPaneRepositories").value,
     workflowPatterns: $("#dualPaneWorkflows").value,
     eventPatterns: $("#dualPaneEvents").value,
@@ -1037,6 +1039,7 @@ function updateDualSection(surface) {
 function writeSurfaceForm(surface) {
   $("#surfaceName").value = surface.name;
   $("#surfaceGridOverflow").value = surface.gridOverflowMode || (surface.gridWrap ? "wrap" : "ellipsis");
+  $("#surfaceGridBreakAfterSeparators").checked = surface.gridBreakAfterSeparators !== false;
   $("#surfaceGridSort").value = surface.gridSortBy;
   $("#surfaceGridRowHeight").value = surface.gridRowLines ?? 0;
   $("#surfaceHeaderOverflow").value = surface.gridHeaderOverflowMode || "ellipsis";
@@ -1092,6 +1095,7 @@ function readSurfaceForm(existing) {
     layout: $("#surfaceLayout").value,
     gridWrap: $("#surfaceGridOverflow").value === "wrap",
     gridOverflowMode: $("#surfaceGridOverflow").value,
+    gridBreakAfterSeparators: $("#surfaceGridBreakAfterSeparators").checked,
     gridSortBy: $("#surfaceGridSort").value,
     gridRowLines: Number($("#surfaceGridRowHeight").value),
     gridHeaderOverflowMode: $("#surfaceHeaderOverflow").value,
