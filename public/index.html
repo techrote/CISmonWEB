@@ -48,8 +48,6 @@
 
   <button id="kioskSurfaceButton" class="kiosk-surface-button" type="button" aria-label="Open surface settings">Surface</button>
 
-  <button id="exitBorderlessButton" class="minimal-exit-button" type="button" hidden>Exit surface-only</button>
-
   <main id="main">
     <section id="syncBanner" class="sync-banner" role="status" hidden></section>
     <section id="errorBanner" class="error-banner" hidden></section>
@@ -69,6 +67,11 @@
       <strong id="emptyTitle">No runs match this surface.</strong>
       <span id="emptyDetail">Adjust the surface filters or wait for matching workflow activity.</span>
     </section>
+    <footer id="minimalFooter" class="minimal-footer" hidden>
+      <span class="minimal-footer-spacer" aria-hidden="true"></span>
+      <span id="minimalSummary" class="minimal-summary"></span>
+      <button id="exitBorderlessButton" class="minimal-exit-button" type="button" hidden>Exit surface-only</button>
+    </footer>
   </main>
 
   <dialog id="detailDialog" class="dialog detail-dialog">
@@ -352,6 +355,10 @@
           <h3>Focus grid · fields and dimensions</h3>
           <div class="form-grid three">
             <label class="field">
+              <span>Fixed row height (px, 0 = auto)</span>
+              <input id="surfaceGridRowHeight" type="number" min="0" max="160" step="1" value="0">
+            </label>
+            <label class="field">
               <span>Cell overflow</span>
               <select id="surfaceGridOverflow">
                 <option value="ellipsis">Clip with ellipsis</option>
@@ -453,6 +460,10 @@
               <option value="normal">Normal+</option><option value="interesting">Interesting+</option>
               <option value="suspicious">Suspicious+</option><option value="action_required">Action required</option>
             </select></label>
+            <label class="field">
+              <span>Fixed row height (px, 0 = auto)</span>
+              <input id="dualPaneRowHeight" type="number" min="0" max="160" step="1" value="0">
+            </label>
             <label class="field"><span>Cell overflow</span>
               <select id="dualPaneOverflow">
                 <option value="ellipsis">Clip with ellipsis</option>
