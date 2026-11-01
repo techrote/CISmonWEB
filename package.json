@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test",
-    "check": "node --check src/server.js && node --check src/monitor.js && node --check src/worker-summary.js && node --check src/scheduler.js && node --check src/core/tracker.js && node --check src/core/dashboard.js && node --check public/app.js && node --check public/fun-engine.js && node --check public/fun-surfaces.js && node --check shared/fun-core.js && node --check shared/hungry-ci.js && node --check public/hungry-frame-engine.js && node --check public/art/hungry-bridge.js && node --check shared/focus-grid.js && node --check public/focus-grid.js"
+    "check": "node --check src/server.js && node --check src/monitor.js && node --check src/check-summary.js && node --check src/worker-summary.js && node --check src/scheduler.js && node --check src/core/tracker.js && node --check src/core/dashboard.js && node --check public/app.js && node --check public/fun-engine.js && node --check public/fun-surfaces.js && node --check shared/fun-core.js && node --check shared/hungry-ci.js && node --check public/hungry-frame-engine.js && node --check public/art/hungry-bridge.js && node --check shared/focus-grid.js && node --check public/focus-grid.js"
   },
   "license": "MIT"
 }
