@@ -422,7 +422,19 @@ function renderDashboard(state) {
   elements.emptyState.hidden = fun || rows.length !== 0;
 
   if (rows.length === 0) {
-    if (state.scannedRepositoryCount < state.repositoryCount) {
+    if (state.repositorySelectionMode === "activity" &&
+        state.pendingActivityProbeCount > 0) {
+      elements.emptyTitle.textContent = "Checking workflow activity…";
+      elements.emptyDetail.textContent =
+        state.pendingActivityProbeCount + " eligible repositories awaiting activity probes. " +
+        state.repositoryCount + " admitted to monitoring so far.";
+    } else if (state.repositorySelectionMode === "activity" &&
+        state.repositoryCount === 0 && state.candidateRepositoryCount > 0) {
+      elements.emptyTitle.textContent = "No active repositories admitted.";
+      elements.emptyDetail.textContent =
+        "No recently updated GitHub Actions workflows matched the " +
+        (config.activeAgeDays || 7) + "-day window. Inactive repositories are rechecked.";
+    } else if (state.scannedRepositoryCount < state.repositoryCount) {
       elements.emptyTitle.textContent = "Scanning repositories…";
       elements.emptyDetail.textContent =
         state.scannedRepositoryCount + " of " + state.repositoryCount +
