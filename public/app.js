@@ -592,6 +592,10 @@ async function pollState() {
     const state = await api("/api/state");
     renderSyncHealth(state);
     elements.repoCount.textContent = String(state.repositoryCount);
+    elements.repoCount.title = state.repositorySelectionMode === "activity"
+      ? state.repositoryCount + " watched / " + state.candidateRepositoryCount +
+        " eligible repositories (activity-based)"
+      : state.repositoryCount + " watched repositories";
     elements.scannedRepoCount.textContent =
       String(state.scannedRepositoryCount) + "/" + String(state.repositoryCount);
     elements.trackedCount.textContent = String(state.trackedRunCount);
@@ -780,6 +784,11 @@ async function openSettings() {
   $("#tokenState").textContent = config.hasGithubToken
     ? "A token is stored locally. Leave blank to keep it."
     : "No token stored.";
+  const monitorState = latestState || await api("/api/state");
+  $("#watchedRepoList").textContent =
+    (monitorState.watchedRepositories || []).join("\n") ||
+    "No repositories currently admitted; activity probes may still be running.";
+
   elements.settingsStatus.textContent = "";
   elements.settingsDialog.showModal();
 }
