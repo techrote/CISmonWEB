@@ -118,6 +118,45 @@ test("queued wait does not create an execution clock, and reruns never inherit i
   assert.equal(run.firstObservedRunningAtEpoch,start+160);
 });
 
+test("observed-only elapsed cannot create spurious ETA or stall warnings from history", () => {
+  const tracker = new RunTracker();
+  tracker.upsert(parseRun(raw("in_progress")), (start + 120) * 1000);
+  const history = {
+    samples: () => Array.from({length:12}, () => ({
+      successful: true, durationMs: 60_000
+    }))
+  };
+  const analyzer = new RuntimeAnalyzer(history);
+  const [row] = buildDashboard(
+    tracker, analyzer, (start + 420)*1000, start + 420
+  );
+  assert.equal(row.elapsedMs,300_000);
+  assert.equal(row.elapsedLowerBound,true);
+  assert.equal(row.baselineSamples,12);
+  assert.equal(row.estimatedRemainingMs,0);
+  assert.equal(row.ratio,0);
+  assert.equal(row.possiblyStalled,false);
+  assert.equal(row.attention,"normal");
+});
+
+test("a queued provider with an observed running child gets the elapsed lower-bound fallback", () => {
+  const tracker = new RunTracker();
+  tracker.upsert(parseRun(raw("queued")), (start+120)*1000);
+  const details = parseRun(raw("queued",start+130));
+  details.jobs=[{
+    id:9,state:"in_progress",startedAtEpoch:0,completedAtEpoch:0,steps:[]
+  }];
+  details.jobsFetchedAtMs=(start+130)*1000;
+  tracker.upsert(details,(start+130)*1000);
+  assert.equal(tracker.all()[0].snapshot.firstObservedRunningAtEpoch,start+130);
+  // The display intentionally upgrades queued parent to in_progress from
+  // actual executing child evidence; in that view elapsed counts from here.
+  const displayed = row(tracker,start+140);
+  assert.equal(displayed.state,"in_progress");
+  assert.equal(displayed.elapsedLowerBound,true);
+  assert.equal(displayed.elapsedMs,10000);
+});
+
 test("separator breaks are DOM wbr nodes only when wrapping; no text modification", async () => {
   const browser=await readFile(new URL("../public/focus-grid.js",import.meta.url),"utf8");
   const html=await readFile(new URL("../public/index.html",import.meta.url),"utf8");
