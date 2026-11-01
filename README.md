@@ -244,6 +244,27 @@ approximately 39 minutes of workflow time remaining even if the currently
 running sanitizer step has just 10 minutes left. S-ETA is not an estimate
 for completing all remaining steps/jobs.
 
+## Separator-aware wrapping and centred telemetry
+
+Focus, Dense, Focus Dual and Focus Vert now offer **Prefer line breaks after
+_, - and .** in the Surface editor. When the cell or column-label overflow
+mode is set to Wrap, the renderer inserts invisible browser-native break
+opportunities *after* these separators (for example, `pull_` / `request`).
+The visible characters, full tooltips, sorting keys and copied text remain
+unchanged. This option defaults on, is independently configurable per pane
+and has no effect in the Clip modes.
+
+The top telemetry strip now centres both headings and values in each cell.
+
+**ELAPSED reliability:** when GitHub reports a workflow as running but
+supplies no usable execution-start timestamp and no started-job detail,
+CISmonWEB counts from when it first *observed* the run executing and shows
+a **≥** prefix to indicate a lower bound. Once actual job timestamps arrive,
+the normal execution-time clock takes precedence. The observed-only duration
+is not used for ETA or stall analysis; queued waiting remains separate.
+This conservative fallback survives summary refreshes and resets on a
+new run attempt.
+
 ## Focus usability refinements and active workers
 
 Focus grid headings are centred and cell contents are vertically centred.
