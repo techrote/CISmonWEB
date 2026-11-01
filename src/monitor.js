@@ -250,10 +250,12 @@ export class Monitor {
       candidate.nextProbeMs = now + this.policy.nextInterval(
         false, false, 0, candidate.errors
       );
+      this.reportFailure("activity:" + candidate.fullName, result, Date.now());
       // A transient failure cannot de-admit an existing monitored repo.
       return false;
     }
     candidate.errors = 0;
+    this.clearFailure("activity:" + candidate.fullName);
     candidate.nextProbeMs = now + ACTIVITY_RECHECK_MS;
     const summary = workflowActivitySummary(
       result.json.workflow_runs, this.config.activeAgeDays, now
