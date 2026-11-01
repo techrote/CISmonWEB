@@ -154,3 +154,28 @@ test("UI exposes copied-pane actions, header overflow, line count and alternate 
   assert.match(css,/data-header-overflow="wrap"/);
   assert.match(css,/--focus-row-lines/);
 });
+
+
+test("activity probe failures back off without clearing admissions or losing watch history",async()=>{
+  let fail=false;
+  const m=mockMonitor({repositorySelectionMode:"activity",activeAgeDays:7});
+  m.client={get:async(url)=>url.startsWith("/user/")?
+    {ok:true,json:[{full_name:"techrote/current"}],rateRemaining:3000}:
+    fail?{ok:false,status:502,error:"HTTP 502",rateRemaining:3000}:
+      {ok:true,json:{workflow_runs:[make(1)]},rateRemaining:3000}};
+  await m.discoverRepositories();
+  const candidate=m.nextActivityCandidate(Date.now());
+  await m.probeActivityCandidate(candidate);
+  assert.equal(m.repositories.length,1);
+  fail=true;
+  assert.equal(await m.probeActivityCandidate(candidate),false);
+  assert.equal(m.repositories.length,1);
+  assert.equal(candidate.errors,1);
+  assert.match(m.state().lastError,/activity:techrote\/current.*HTTP 502/);
+  assert.ok(candidate.nextProbeMs>Date.now());
+  fail=false;
+  assert.equal(await m.probeActivityCandidate(candidate),true);
+  assert.equal(m.repositories.length,1);
+  assert.equal(candidate.errors,0);
+  assert.equal(m.state().lastError,"");
+});
