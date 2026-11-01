@@ -50,9 +50,17 @@ export class RunTracker {
       }
       const leftQueue = existing.snapshot.state === RunState.Queued &&
         merged.state === RunState.InProgress;
+      const runningEvidence = merged.state === RunState.InProgress ||
+        merged.jobs?.some(job => job.state === RunState.InProgress);
       merged.observedStartedAtEpoch = !attemptChanged &&
         (existing.snapshot.observedStartedAtEpoch ||
           (leftQueue ? Math.floor(nowMs / 1000) : 0)) || 0;
+      // A run first discovered already running may have run_started_at equal
+      // to created_at and no job timestamps yet. Retain the *observation*
+      // time for a conservative, explicitly labelled lower-bound clock.
+      merged.firstObservedRunningAtEpoch = (
+        !attemptChanged ? existing.snapshot.firstObservedRunningAtEpoch : 0
+      ) || (runningEvidence ? Math.floor(nowMs / 1000) : 0);
       existing.snapshot = merged;
       existing.lastSeenMs = nowMs;
       existing.observedActive ||= incomingActive;
@@ -67,7 +75,11 @@ export class RunTracker {
         ...snapshot, jobs: snapshot.jobs || [],
         // First-seen running runs use GitHub's distinct run_started_at;
         // observations are only an actual queued→running transition fallback.
-        observedStartedAtEpoch: 0
+        observedStartedAtEpoch: 0,
+        firstObservedRunningAtEpoch: (
+          snapshot.state === RunState.InProgress ||
+          snapshot.jobs?.some(job => job.state === RunState.InProgress)
+        ) ? Math.floor(nowMs / 1000) : 0
       },
       firstSeenMs: nowMs,
       lastSeenMs: nowMs,

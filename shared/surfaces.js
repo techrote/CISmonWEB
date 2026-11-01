@@ -416,6 +416,9 @@ export function normalizeSurface(input = {}, index = 0) {
     gridWrap: bool(input.gridWrap, fallback.gridWrap ?? false),
     gridOverflowMode: normalizeGridOverflowMode(input.gridOverflowMode,
       bool(input.gridWrap, fallback.gridWrap ?? false)),
+    gridBreakAfterSeparators: bool(
+      input.gridBreakAfterSeparators, fallback.gridBreakAfterSeparators ?? true
+    ),
     gridSortBy: normalizeGridSortBy(input.gridSortBy ?? fallback.gridSortBy),
     gridSortDir: input.gridSortDir === "asc" ? "asc" : "desc",
     gridSortSecondaryBy: (() => {

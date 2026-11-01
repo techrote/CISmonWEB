@@ -32,6 +32,23 @@ export function normalizeGridOverflowMode(mode, previousWrap = false) {
   return GRID_OVERFLOW_MODES.some(([id]) => id === mode)
     ? mode : (previousWrap ? "wrap" : "ellipsis");
 }
+
+// Word-wrap opportunities AFTER separators, preserving the original literal
+// text for sorting, tooltips, copy/paste, and accessible names. Callers insert
+// a zero-width <wbr> node BETWEEN these segments only in wrap mode.
+export function separatorBreakSegments(value) {
+  const input = String(value ?? "");
+  const segments = [];
+  let start = 0;
+  for (let i = 0; i < input.length - 1; i++) {
+    if (input[i] === "_" || input[i] === "-" || input[i] === ".") {
+      segments.push(input.slice(start, i + 1));
+      start = i + 1;
+    }
+  }
+  segments.push(input.slice(start));
+  return segments;
+}
 export const GRID_LABEL = Object.freeze(Object.fromEntries(GRID_FIELDS.map(([id, label]) => [id, label])));
 export const GRID_DEFAULT_WIDTH = Object.freeze(Object.fromEntries(GRID_FIELDS.map(([id, , width]) => [id, width])));
 export const GRID_DATE_FORMATS = Object.freeze([
@@ -164,6 +181,9 @@ export function normalizePane(input = {}, index = 0, parent = {}) {
     gridWrap: boolean(input.gridWrap, parent.gridWrap ?? false),
     gridOverflowMode: normalizeGridOverflowMode(input.gridOverflowMode,
       boolean(input.gridWrap, parent.gridWrap ?? false)),
+    gridBreakAfterSeparators: boolean(
+      input.gridBreakAfterSeparators, parent.gridBreakAfterSeparators ?? true
+    ),
     gridSortBy: normalizeGridSortBy(input.gridSortBy ?? (left ? "priority" : "attention")),
     gridSortDir: input.gridSortDir === "asc" ? "asc" : "desc",
     gridSortSecondaryBy: normalizeGridSortBy(input.gridSortSecondaryBy) === "priority"

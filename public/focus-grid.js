@@ -1,6 +1,6 @@
 import {
   GRID_DEFAULT_WIDTH, GRID_LABEL, GRID_MIN_WIDTH, gridFieldRaw, formatGridDate,
-  normalizeGridFields, reorderGridFields, sortGridRows
+  normalizeGridFields, reorderGridFields, separatorBreakSegments, sortGridRows
 } from "/focus-grid.js";
 
 const make = (tag, className = "", text) => {
@@ -9,6 +9,19 @@ const make = (tag, className = "", text) => {
   if (text !== undefined) n.textContent = String(text);
   return n;
 };
+
+
+// Inject discretionary browser-native break opportunities without modifying
+// displayed text, source values or tooltip strings. Never use innerHTML.
+function appendSeparatorBreaks(node, originalText) {
+  const parts = separatorBreakSegments(originalText);
+  if (parts.length === 1) return;
+  node.replaceChildren();
+  for (let i = 0; i < parts.length; i++) {
+    node.append(document.createTextNode(parts[i]));
+    if (i !== parts.length - 1) node.append(document.createElement("wbr"));
+  }
+}
 
 function duration(ms) {
   if (!Number.isFinite(ms) || ms <= 0) return "—";
@@ -19,8 +32,10 @@ function duration(ms) {
 function display(row, field, options) {
   const raw = gridFieldRaw(row, field);
   switch (field) {
-    case "elapsed": return row.state === "queued" ?
-      "WAIT " + duration(row.waitingMs || 0) : duration(raw);
+    case "elapsed": return row.state === "queued"
+      ? "WAIT " + duration(row.waitingMs || 0)
+      : row.elapsedLowerBound ? "≥" + (raw > 0 ? duration(raw) : "0s")
+        : duration(raw);
     case "remaining": case "stageRemaining": case "baseline": return duration(raw);
     case "ratio": return raw ? raw.toFixed(2) + "×" : "—";
     case "added": return formatGridDate(raw, options.gridAddedFormat, options.gridAddedPattern);
@@ -87,6 +102,10 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
         secondary ? (options.gridSortSecondaryDir === "asc" ? " ²↑" : " ²↓") : "") +
       "");
     sort.type = "button";
+    if (table.dataset.headerOverflow === "wrap" &&
+        options.gridBreakAfterSeparators !== false) {
+      appendSeparatorBreaks(sort, sort.textContent);
+    }
     sort.title = (field === "remaining"
       ? "Whole workflow ETA based on run-level history; S-ETA is the active stage only. "
       : field === "stageRemaining"
@@ -215,7 +234,14 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
       } else {
         const v = display(row, field, options);
         const value = make("span", "focus-grid-value", v);
-        value.title = field === "state" && row.providerState === "queued" &&
+        if (table.dataset.wrap === "wrap" &&
+            options.gridBreakAfterSeparators !== false) {
+          appendSeparatorBreaks(value, v);
+        }
+        value.title = field === "elapsed" && row.elapsedLowerBound
+          ? "Lower bound: time since CISmonWEB first observed this workflow running. " +
+            "Actual job timestamps have not been acquired; no run ETA is inferred."
+          : field === "state" && row.providerState === "queued" &&
           row.state === "in_progress"
           ? v + " — GitHub reports queued; running child jobs were observed" +
             (row.jobsCoverageComplete ? "" : " (partial job coverage)")
