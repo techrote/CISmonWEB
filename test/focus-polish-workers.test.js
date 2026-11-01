@@ -33,9 +33,11 @@ test("active workers count occupied running-job slots, not running workflows", (
     tracked("techrote/d", 4, RunState.Completed, [job(116)])
   ];
   const summary = activeWorkerSummary(runs, NOW);
-  assert.equal(summary.activeWorkers, 3); // job 111 in distinct repos is distinct
-  assert.equal(summary.workerCoverageRuns, 2);
-  assert.equal(summary.workerTotalRunningRuns, 2);
+  assert.equal(summary.activeWorkers, 4); // queued parent c has an executing child
+  assert.equal(summary.workerCoverageRuns, 3);
+  assert.equal(summary.workerTotalRunningRuns, 2); // GitHub-reported running parents
+  assert.equal(summary.workerTotalLiveRuns, 3);
+  assert.equal(summary.observedRunningRunCount, 3);
   assert.equal(summary.activeWorkersPartial, false);
 });
 
@@ -137,5 +139,6 @@ test("server state exposes verified active-worker count and coverage", async () 
   const content = await readFile(new URL("../src/monitor.js",import.meta.url),"utf8");
   assert.match(content,/activeWorkerSummary\(tracked,\s*nowMs\)/);
   assert.match(content,/\.\.\.workers/);
-  assert.match(content,/jobsFetchedAtMs:\s*Date\.now\(\)/);
+  assert.match(content,/jobsFetchedAtMs:\s*fetchedAtMs/);
+  assert.match(content,/MAX_JOB_DETAIL_PAGES/);
 });

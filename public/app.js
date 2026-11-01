@@ -110,10 +110,19 @@ function activeSurface() {
   return surfaces.find((surface) => surface.id === (localSurfaceOverride || config?.activeSurfaceId)) || surfaces[0];
 }
 
+function displayRunState(row) {
+  if (row.state === "completed") return row.conclusion;
+  if (row.state === "in_progress" && row.providerState === "queued") {
+    return "jobs active (" + (row.observedRunningJobs || 1) + ")";
+  }
+  return row.state;
+}
+
 function fieldMeta(row, field) {
   switch (field) {
     case "stage": return ["CURRENT STAGE", row.stage || "workflow", ""];
-    case "state": return ["STATE", row.state === "completed" ? row.conclusion : row.state, ""];
+    case "state": return ["STATE", displayRunState(row),
+      row.providerState !== row.state ? "GitHub: " + row.providerState : ""];
     case "elapsed": return [row.state === "queued" ? "WAITING" : "ELAPSED", formatDuration(row.elapsedMs), ""];
     case "baseline": return ["MEDIAN", formatDuration(row.baselineMedianMs), row.baselineMedianMs ? row.confidence + " baseline" : "no baseline"];
     case "ratio": return ["RATIO", row.ratio ? row.ratio.toFixed(2) + "×" : "—", row.ratio >= 1.3 ? "above expected" : ""];
@@ -125,7 +134,7 @@ function fieldMeta(row, field) {
 }
 
 function stateBadge(row) {
-  const text = row.state === "completed" ? row.conclusion : row.state;
+  const text = displayRunState(row);
   const className = row.state === "completed" ? row.attention : row.state;
   return badge(text, className);
 }
@@ -464,9 +473,10 @@ function renderDashboard(state) {
   const workerLabel = workerCount + (state.activeWorkersPartial ? "+" : "") + " active workers";
   elements.surfaceSummary.title = state.activeWorkersPartial
     ? workerCount + " confirmed occupied runner slots; job detail received for " +
-      (state.workerCoverageRuns || 0) + "/" + (state.workerTotalRunningRuns || 0) +
-      " running workflows. Actual count may be higher."
-    : workerCount + " in-progress Actions jobs occupying runner slots.";
+      (state.workerCoverageRuns || 0) + "/" + (state.workerTotalLiveRuns || 0) +
+      " queued/running workflows (all available job pages). Actual count may be higher."
+    : workerCount + " confirmed in-progress Actions jobs occupying runner slots " +
+      "across queued and running workflows.";
   elements.surfaceSummary.textContent =
     workerLabel + " · " + displayedRows.length + " shown" +
     (!["focus_dual", "focus_vert"].includes(surface.layout) && matchedRows.length > rows.length ? " of " + matchedRows.length + " matching" : "") +
@@ -664,7 +674,11 @@ async function renderDetail(repository, runId, show = true) {
   elements.detailMeta.textContent = [
     detail.event,
     detail.branch,
-    detail.headSha ? detail.headSha.slice(0, 10) : ""
+    detail.headSha ? detail.headSha.slice(0, 10) : "",
+    detail.providerState === "queued" && detail.state === "in_progress"
+      ? "GitHub queued · " + detail.observedRunningJobs + " executing jobs"
+      : "",
+    detail.jobsCoverageComplete === false ? "Job scan incomplete" : ""
   ].filter(Boolean).join("  ·  ");
 
   elements.detailActions.replaceChildren();

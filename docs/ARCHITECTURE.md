@@ -44,15 +44,25 @@ calculations; the queued workflow's wall-clock age is still displayed.
 
 src/github.js owns REST transport and normalization.
 
-src/monitor.js owns scheduling. Each scheduler tick performs at most one GitHub operation, with this priority:
+src/monitor.js owns scheduling. Live detail includes *queued* as well as
+`in_progress` GitHub workflow runs, because a queued parent may already
+contain running matrix jobs. Each ordinary scheduler tick performs at most one
+GitHub request, interleaving run-job pages with due repository summaries and
+historical backfill. Repository discovery and explicit fast sweeps retain their
+existing separate bounded request policy.
 
-    active run detail
-        > repository run summary
-            > history backfill
+Job lists are fetched at 100 per page, up to a bounded 20 pages per scan.
+Continuation pages are prioritised so jobs beyond page 1 become visible.
+Each page's jobs are de-duplicated by job ID; an incomplete page set or failed
+request remains an explicitly partial lower-bound observation. Completed
+scans are revisited under the adaptive live/queued intervals. Raw provider
+state is never overwritten: dashboard presentation derives an observed
+execution state only from fresh running job evidence.
 
-The scheduler tracks GitHub rate-limit response headers and suspends requests until reset when appropriate.
-
-Repository summary requests carry If-None-Match after an ETag has been observed.
+The scheduler tracks rate-limit response headers and suspends requests until
+reset when appropriate. Repository summary requests use ETags. Worker counts
+refer to fresh, distinct in-progress jobs across the monitored live run set,
+with partial coverage reported instead of claiming a falsely exact zero.
 
 ## Persistence
 

@@ -1,5 +1,6 @@
 import { AttentionLevel, RunState, baselineKey, isTerminal } from "./model.js";
 import { runExecutionElapsedMs } from "./analyzer.js";
+import { hasFreshJobDetails, observedRunningJobs, observedRunState } from "../worker-summary.js";
 
 function attentionRank(level) {
   if (level === AttentionLevel.ActionRequired) return 4;
@@ -65,6 +66,9 @@ export function buildDashboard(
   const result = [];
   for (const tracked of tracker.visible(nowMs, successTtlMs, terminalTtlMs)) {
     const run = tracked.snapshot;
+    const effectiveState = observedRunState(run, nowMs);
+    const analyzed = effectiveState === run.state ? run : { ...run, state: effectiveState };
+    const runningJobs = observedRunningJobs(run, nowMs);
     const item = {
       repository: run.repository,
       workflow: run.workflowName,
@@ -86,7 +90,12 @@ export function buildDashboard(
       event: run.event,
       headSha: run.headSha,
       htmlUrl: run.htmlUrl,
-      state: run.state,
+      state: effectiveState,
+      providerState: run.state,
+      observedRunningJobs: runningJobs.length,
+      jobsCoverageComplete: hasFreshJobDetails(run, nowMs) &&
+        run.jobsCoverageComplete !== false,
+      jobsFetchedAtMs: run.jobsFetchedAtMs || 0,
       conclusion: run.conclusion,
       attention: AttentionLevel.Normal,
       confidence: "none",
@@ -102,21 +111,21 @@ export function buildDashboard(
 
     let runAnalysis;
     if (nowEpoch > 1000000000) {
-      runAnalysis = analyzer.analyzeRun(run, nowEpoch);
+      runAnalysis = analyzer.analyzeRun(analyzed, nowEpoch);
       item.elapsedMs = runAnalysis.elapsedMs;
       item.waitingMs = runAnalysis.waitingMs || 0;
     } else {
-      const localElapsed = run.state === RunState.Completed
+      const localElapsed = effectiveState === RunState.Completed
         ? tracked.terminalSinceMs - tracked.firstSeenMs
         : nowMs - tracked.firstSeenMs;
-      const preciseElapsed = runExecutionElapsedMs(run, nowEpoch);
-      runAnalysis = run.state === RunState.Queued
-        ? analyzer.analyzeQueuedRun(run, localElapsed)
+      const preciseElapsed = runExecutionElapsedMs(analyzed, nowEpoch);
+      runAnalysis = effectiveState === RunState.Queued
+        ? analyzer.analyzeQueuedRun(analyzed, localElapsed)
         : analyzer.analyze(
-          baselineKey.run(run),
-          preciseElapsed || (run.state === RunState.InProgress &&
+          baselineKey.run(analyzed),
+          preciseElapsed || (effectiveState === RunState.InProgress &&
             !run.createdAtEpoch && !run.startedAtEpoch ? localElapsed : 0),
-          isTerminal(run.state),
+          isTerminal(effectiveState),
           run.conclusion
         );
       item.elapsedMs = runAnalysis.elapsedMs;
@@ -124,14 +133,16 @@ export function buildDashboard(
     }
     applyAnalysis(item, runAnalysis);
 
-    let currentJob = run.jobs?.find((job) => job.state === RunState.InProgress);
-    if (!currentJob) currentJob = run.jobs?.find((job) => job.state === RunState.Queued);
+    const visibleJobs = run.state === RunState.Queued &&
+      !hasFreshJobDetails(run, nowMs) ? [] : (run.jobs || []);
+    let currentJob = visibleJobs.find((job) => job.state === RunState.InProgress);
+    if (!currentJob) currentJob = visibleJobs.find((job) => job.state === RunState.Queued);
 
     if (currentJob) {
       item.stage = currentJob.name;
       const currentStep = currentJob.steps?.find((step) => step.state === RunState.InProgress);
       if (nowEpoch > 1000000000 &&
-          run.state !== RunState.Queued && currentJob.state === RunState.InProgress) {
+          effectiveState !== RunState.Queued && currentJob.state === RunState.InProgress) {
         if (currentStep) {
           item.stage = currentStep.name;
           applyStageAnalysis(item,

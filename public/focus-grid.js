@@ -31,7 +31,10 @@ function display(row, field, options) {
       (row.baselineSamples || 0);
     case "stage": return raw || "workflow";
     case "attention": return String(raw).replaceAll("_", " ");
-    case "state": return String(raw || "unknown").replaceAll("_", " ");
+    case "state":
+      return row.providerState === "queued" && row.state === "in_progress"
+        ? "jobs active (" + (row.observedRunningJobs || 1) + ")"
+        : String(raw || "unknown").replaceAll("_", " ");
     default: return raw === undefined || raw === null || raw === "" ? "—" : String(raw);
   }
 }
@@ -182,7 +185,11 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
       td.dataset.field = field;
       const v = display(row, field, options);
       const value = make("span", "focus-grid-value", v);
-      value.title = v;
+      value.title = field === "state" && row.providerState === "queued" &&
+        row.state === "in_progress"
+        ? v + " — GitHub reports queued; running child jobs were observed" +
+          (row.jobsCoverageComplete ? "" : " (partial job coverage)")
+        : v;
       if (field === "attention") value.className += " attention-" + row.attention;
       if (field === "state") value.className += " state-" + row.state;
       td.append(value);

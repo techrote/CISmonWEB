@@ -46,13 +46,22 @@ Dual and Vert panes can choose independent modes. The horizontal scrollbar
 is enabled only after the columns exceed the measured content width, so
 it does not flash on every refresh when all columns fit.
 
-The summary now begins with **active workers**, meaning the count of
-distinct currently in-progress Actions jobs with fresh job detail. This
-represents occupied runner slots, not running workflows. The count can be
-smaller than the number of workflows or larger when workflows have multiple
-parallel jobs. A `+` indicates a lower bound because one or more running
-workflows are still missing recent job detail. This indicator uses existing
-polling and does not add any API calls.
+The summary begins with **active workers**: distinct in-progress Actions job
+IDs across *all monitored* queued and running workflows. GitHub can report a
+workflow as `queued` while its matrix children are already executing. Such
+rows appear as **jobs active (N)**, are included in the running filter/count,
+and retain their original GitHub status in the row tooltip and details.
+Queue wait does not become execution time; elapsed execution uses actual job
+starts.
+
+The monitor retrieves queued *and* running workflow jobs, up to 100 per API
+page, incrementally across subsequent pages. Each page uses a separately
+scheduled, rate-limited request; scans are bounded, failures are retried without
+discarding evidence, and ordinary repository polling remains interleaved.
+A `+` marks a **confirmed lower bound** while any monitored live workflow
+lacks full, fresh job detail (120-second freshness window). No status or
+worker count is guessed from a stale page. These counts are not a GitHub-wide
+runner inventory: excluded/unscanned repositories are outside coverage.
 
 ## Field and column controls
 

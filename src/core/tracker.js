@@ -23,16 +23,36 @@ export class RunTracker {
     if (existing) {
       const wasTerminal = isTerminal(existing.snapshot.state);
       const nowTerminal = isTerminal(snapshot.state);
+      const attemptChanged = Number(snapshot.runAttempt || 1) !==
+        Number(existing.snapshot.runAttempt || 1);
       const merged = { ...snapshot };
-      if ((!merged.jobs || merged.jobs.length === 0) && existing.snapshot.jobs?.length) {
+      // A rerun reuses the workflow run ID but not its child job attempts.
+      // Do not retain old execution evidence into the new attempt.
+      if (attemptChanged) {
+        merged.jobs = snapshot.jobs || [];
+        merged.jobsFetchedAtMs = 0;
+        merged.jobsCoverageComplete = false;
+      }
+      // Workflow-list summaries contain jobs: [] but no detail timestamp.
+      // Retain separately fetched evidence across summary refreshes, including
+      // verified empty lists. An explicit detail response (timestamp present)
+      // is authoritative even when it clears previously running jobs.
+      if (!attemptChanged && !Object.hasOwn(snapshot, "jobsFetchedAtMs") &&
+          Number(existing.snapshot.jobsFetchedAtMs || 0) > 0) {
         merged.jobs = existing.snapshot.jobs;
-        merged.jobsFetchedAtMs = existing.snapshot.jobsFetchedAtMs || 0;
+        merged.jobsFetchedAtMs = existing.snapshot.jobsFetchedAtMs;
         merged.jobsCoverageComplete = existing.snapshot.jobsCoverageComplete !== false;
+        merged.jobsExpectedCount = existing.snapshot.jobsExpectedCount;
+      } else if ((!merged.jobs || merged.jobs.length === 0) &&
+                 existing.snapshot.jobs?.length &&
+                 !attemptChanged && !Object.hasOwn(snapshot, "jobsFetchedAtMs")) {
+        merged.jobs = existing.snapshot.jobs;
       }
       const leftQueue = existing.snapshot.state === RunState.Queued &&
         merged.state === RunState.InProgress;
-      merged.observedStartedAtEpoch = existing.snapshot.observedStartedAtEpoch ||
-        (leftQueue ? Math.floor(nowMs / 1000) : 0);
+      merged.observedStartedAtEpoch = !attemptChanged &&
+        (existing.snapshot.observedStartedAtEpoch ||
+          (leftQueue ? Math.floor(nowMs / 1000) : 0)) || 0;
       existing.snapshot = merged;
       existing.lastSeenMs = nowMs;
       existing.observedActive ||= incomingActive;
