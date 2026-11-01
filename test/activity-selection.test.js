@@ -179,3 +179,28 @@ test("activity probe failures back off without clearing admissions or losing wat
   assert.equal(candidate.errors,0);
   assert.equal(m.state().lastError,"");
 });
+
+
+test("de-admission removes old run, job, backfill and check polling without deleting history",async()=>{
+  const m=mockMonitor({repositorySelectionMode:"activity",activeAgeDays:7});
+  const repo="techrote/retired";
+  const candidate={fullName:repo,lastProbeMs:0,nextProbeMs:0,errors:0};
+  m.activityCandidates.set(repo,candidate);
+  m.repositories=[{fullName:repo,hadActive:false,hadQueued:false}];
+  m.tracker.upsert({repository:repo,runId:77,state:"completed",conclusion:"failure"},Date.now());
+  m.activeDetailNextMs.set(repo+"#77",0);
+  m.activeDetailErrors.set(repo+"#77",1);
+  m.liveJobScans.set(repo+"#77",{page:2});
+  m.queuedBackfill.add(repo+"#77");
+  m.backfill=[{repository:repo,runId:77,jobs:[]}];
+  m.checkSnapshots.set(repo+"@"+"f".repeat(40),{});
+  m.client={get:async()=>({ok:true,json:{workflow_runs:[make(30)]},rateRemaining:4000})};
+  assert.equal(await m.probeActivityCandidate(candidate),true);
+  assert.equal(m.repositories.length,0);
+  assert.equal(m.tracker.all().length,0);
+  assert.equal(m.activeDetailNextMs.size,0);
+  assert.equal(m.liveJobScans.size,0);
+  assert.equal(m.backfill.length,0);
+  assert.equal(m.queuedBackfill.size,0);
+  assert.equal(m.checkSnapshots.size,0);
+});
