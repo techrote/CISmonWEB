@@ -32,8 +32,10 @@ function duration(ms) {
 function display(row, field, options) {
   const raw = gridFieldRaw(row, field);
   switch (field) {
-    case "elapsed": return row.state === "queued" ?
-      "WAIT " + duration(row.waitingMs || 0) : duration(raw);
+    case "elapsed": return row.state === "queued"
+      ? "WAIT " + duration(row.waitingMs || 0)
+      : row.elapsedLowerBound ? "≥" + (raw > 0 ? duration(raw) : "0s")
+        : duration(raw);
     case "remaining": case "stageRemaining": case "baseline": return duration(raw);
     case "ratio": return raw ? raw.toFixed(2) + "×" : "—";
     case "added": return formatGridDate(raw, options.gridAddedFormat, options.gridAddedPattern);
@@ -236,7 +238,10 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
             options.gridBreakAfterSeparators !== false) {
           appendSeparatorBreaks(value, v);
         }
-        value.title = field === "state" && row.providerState === "queued" &&
+        value.title = field === "elapsed" && row.elapsedLowerBound
+          ? "Lower bound: time since CISmonWEB first observed this workflow running. " +
+            "Actual job timestamps have not been acquired; no run ETA is inferred."
+          : field === "state" && row.providerState === "queued" &&
           row.state === "in_progress"
           ? v + " — GitHub reports queued; running child jobs were observed" +
             (row.jobsCoverageComplete ? "" : " (partial job coverage)")
