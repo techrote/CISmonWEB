@@ -864,6 +864,7 @@ export class Monitor {
         ? this.activityCandidates.size : this.repositories.length,
       pendingActivityProbeCount: this.activityProbeQueue.length,
       repositorySelectionMode: this.config.repositorySelectionMode,
+      watchedRepositories: this.repositories.map(repo => repo.fullName),
       scannedRepositoryCount,
       attemptedRepositoryCount,
       failedInitialScanCount,
