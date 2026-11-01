@@ -299,7 +299,8 @@ export class Monitor {
           this.policy.nextInterval(false, false, 0, target.failures);
       target.nextPollMs = now + interval;
       target.page = 1;
-      target.runs.clear();
+      // Preserve the last known counts if this is a transient error, but
+      // mark them incomplete instead of replacing them with misleading zeroes.
       return false;
     }
 
@@ -348,7 +349,8 @@ export class Monitor {
       fetchedAtMs: 0
     };
     const metrics = summarizeCheckRuns(
-      entry.runs.values(), entry.totalCount, entry.page === 1
+      entry.runs.values(), entry.totalCount,
+      entry.page === 1 && !entry.error
     );
     return { ...metrics, error: entry.error, fetchedAtMs: entry.fetchedAtMs };
   }
