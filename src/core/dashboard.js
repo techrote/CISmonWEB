@@ -102,6 +102,7 @@ export function buildDashboard(
       attention: AttentionLevel.Normal,
       confidence: "none",
       elapsedMs: 0,
+      elapsedLowerBound: false,
       waitingMs: 0,
       baselineMedianMs: 0,
       estimatedRemainingMs: 0,
@@ -115,6 +116,7 @@ export function buildDashboard(
     if (nowEpoch > 1000000000) {
       runAnalysis = analyzer.analyzeRun(analyzed, nowEpoch);
       item.elapsedMs = runAnalysis.elapsedMs;
+      item.elapsedLowerBound = !!runAnalysis.elapsedLowerBound;
       item.waitingMs = runAnalysis.waitingMs || 0;
     } else {
       const localElapsed = effectiveState === RunState.Completed
@@ -131,6 +133,7 @@ export function buildDashboard(
           run.conclusion
         );
       item.elapsedMs = runAnalysis.elapsedMs;
+      item.elapsedLowerBound = !!runAnalysis.elapsedLowerBound;
       item.waitingMs = runAnalysis.waitingMs || 0;
     }
     applyAnalysis(item, runAnalysis);
