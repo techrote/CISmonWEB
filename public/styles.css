@@ -1011,21 +1011,38 @@ body.surface-hide-chrome main { padding-top: 10px; }
 .grid-field-chip:active { cursor: grabbing; }
 .grid-field-chip input { width: auto; }
 
+.minimal-footer { display: none; }
 .minimal-exit-button {
-  display: none;
-  position: fixed;
-  z-index: 99;
-  top: 8px;
-  right: 8px;
-  opacity: .18;
+  position: static;
+  justify-self: end;
+  opacity: .45;
   background: var(--panel);
   border: 1px solid var(--line);
   color: var(--text);
   font-size: 10px;
   padding: 7px 10px;
+  cursor: pointer;
 }
 .minimal-exit-button:hover, .minimal-exit-button:focus-visible { opacity: 1; }
-body.minimal-only .minimal-exit-button { display: block; }
+body.minimal-only .minimal-footer {
+  display: grid !important;
+  grid-template-columns: 1fr minmax(0,auto) 1fr;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 12px;
+  min-height: 42px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  background: var(--panel);
+  font-size: 11px;
+}
+.minimal-summary {
+  grid-column: 2;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+body.minimal-only .minimal-exit-button { grid-column: 3; display: block; }
 body.minimal-only > .topbar,
 body.minimal-only > .surfacebar,
 body.minimal-only > .kiosk-surface-button,
@@ -1042,7 +1059,7 @@ body.minimal-only main, body.minimal-only main.full-width {
   padding: 0;
   margin: 0;
 }
-body.minimal-only .dashboard, body.minimal-only .focus-dual { min-height: 100vh; }
+body.minimal-only .dashboard, body.minimal-only .focus-dual { min-height: 0; }
 body.minimal-only .focus-grid-wrap { max-height: 100vh; }
 body.minimal-only .focus-dual-pane .focus-grid-wrap { max-height: calc(100vh - 45px); }
 body.minimal-only .living-surface, body.minimal-only .living-overlay {
@@ -1145,4 +1162,48 @@ body.minimal-only .focus-vert-pane .focus-grid-wrap {
 .focus-grid-table[data-wrap="hard_clip"] .focus-grid-head,
 .focus-grid-table[data-wrap="hard_clip"] .focus-sort {
   text-overflow: clip;
+}
+
+
+/* Focus: centre all table content along both axes. */
+.focus-grid-table .focus-grid-cell,
+.focus-grid-table .focus-grid-value {
+  text-align: center;
+  vertical-align: middle;
+}
+.focus-grid-table .focus-grid-cell {
+  align-content: center;
+}
+.focus-grid-table[data-fixed-row-height="true"] .focus-grid-row {
+  height: var(--focus-row-height);
+  max-height: var(--focus-row-height);
+}
+.focus-grid-table[data-fixed-row-height="true"] .focus-grid-cell {
+  height: var(--focus-row-height);
+  max-height: var(--focus-row-height);
+  overflow: hidden !important;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.focus-grid-table[data-fixed-row-height="true"] .focus-grid-value {
+  max-height: calc(var(--focus-row-height) - 2px);
+  overflow: hidden !important;
+  display: block;
+}
+.focus-check-progress {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 0;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.focus-check-pass { color: var(--normal); }
+.focus-check-total { color: var(--interesting); }
+.focus-check-fail { color: var(--action); }
+.focus-check-separator { color: var(--dim); }
+.focus-check-pending { color: var(--muted); }
+@media (max-width: 650px) {
+  body.minimal-only .minimal-footer { grid-template-columns: 1fr auto; }
+  .minimal-summary { grid-column: 1; text-align: center; }
+  body.minimal-only .minimal-exit-button { grid-column: 2; }
 }
