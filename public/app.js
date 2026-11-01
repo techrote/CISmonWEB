@@ -35,6 +35,8 @@ const elements = {
   emptyTitle: $("#emptyTitle"),
   emptyDetail: $("#emptyDetail"),
   summaryStrip: $("#summaryStrip"),
+  minimalFooter: $("#minimalFooter"),
+  minimalSummary: $("#minimalSummary"),
   surfaceTitle: $("#surfaceTitle"),
   surfaceSummary: $("#surfaceSummary"),
   surfaceMode: $("#surfaceMode"),
@@ -482,6 +484,8 @@ function renderDashboard(state) {
     (!["focus_dual", "focus_vert"].includes(surface.layout) && matchedRows.length > rows.length ? " of " + matchedRows.length + " matching" : "") +
     " · " + counts.active + " running · " + counts.queued +
     " queued · " + counts.suspicious + " suspicious · " + counts.alerts + " action required";
+  elements.minimalSummary.textContent = elements.surfaceSummary.textContent;
+  elements.minimalSummary.title = elements.surfaceSummary.title;
 }
 
 function applySurfaceVisuals() {
@@ -493,6 +497,7 @@ function applySurfaceVisuals() {
   elements.main.classList.toggle("full-width", surface.fullWidth || minimalOnly);
   document.body.classList.toggle("minimal-only", minimalOnly);
   $("#exitBorderlessButton").hidden = !minimalOnly;
+  elements.minimalFooter.hidden = !minimalOnly;
   elements.telemetry.hidden = !surface.showTelemetry;
   elements.summaryStrip.hidden = !surface.showSummary;
   elements.surfaceBar.hidden = surface.hideChrome;
@@ -835,6 +840,7 @@ function writePaneForm(pane) {
   $("#dualPaneAddedDatePattern").value = pane.gridAddedPattern || "YYYY-MM-DD HH:mm";
   $("#dualPaneUpdatedDatePattern").value = pane.gridUpdatedPattern || "YYYY-MM-DD HH:mm";
   $("#dualPaneMax").value = pane.maxItems;
+  $("#dualPaneRowHeight").value = pane.gridRowHeight ?? 0;
   $("#dualPaneDensity").value = pane.density || "compact";
   $("#dualPaneAttention").value = pane.minAttention;
   $("#dualPaneOverflow").value = pane.gridOverflowMode || (pane.gridWrap ? "wrap" : "ellipsis");
@@ -878,6 +884,7 @@ function commitPaneForm() {
     gridAddedPattern: $("#dualPaneAddedDatePattern").value,
     gridUpdatedPattern: $("#dualPaneUpdatedDatePattern").value,
     maxItems: Number($("#dualPaneMax").value),
+    gridRowHeight: Number($("#dualPaneRowHeight").value),
     density: $("#dualPaneDensity").value,
     minAttention: $("#dualPaneAttention").value,
     gridWrap: $("#dualPaneOverflow").value === "wrap",
@@ -938,6 +945,7 @@ function writeSurfaceForm(surface) {
   $("#surfaceName").value = surface.name;
   $("#surfaceGridOverflow").value = surface.gridOverflowMode || (surface.gridWrap ? "wrap" : "ellipsis");
   $("#surfaceGridSort").value = surface.gridSortBy;
+  $("#surfaceGridRowHeight").value = surface.gridRowHeight ?? 0;
   $("#surfaceGridDirection").value = surface.gridSortDir;
   $("#surfaceGridSecondarySort").value = surface.gridSortSecondaryBy || "";
   $("#surfaceGridSecondaryDirection").value = surface.gridSortSecondaryDir || "desc";
@@ -990,6 +998,7 @@ function readSurfaceForm(existing) {
     gridWrap: $("#surfaceGridOverflow").value === "wrap",
     gridOverflowMode: $("#surfaceGridOverflow").value,
     gridSortBy: $("#surfaceGridSort").value,
+    gridRowHeight: Number($("#surfaceGridRowHeight").value),
     gridSortDir: $("#surfaceGridDirection").value,
     gridSortSecondaryBy: $("#surfaceGridSecondarySort").value,
     gridSortSecondaryDir: $("#surfaceGridSecondaryDirection").value,
