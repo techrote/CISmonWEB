@@ -46,6 +46,27 @@ coverage; the GitHub token needs Checks:read for private repositories.
 This low-priority enrichment is rate-budgeted separately from live workflow
 polling. See [Focus popup and check-progress guide](docs/FOCUS_POPUP_CHECKS.md).
 
+## Activity-based backfill and advanced Focus controls
+
+CISmonWEB now defaults to **activity-based repository selection** (last 7 days
+of GitHub Actions workflow activity). Configure → GitHub access lets you
+change the active age or monitor all eligible repositories. A dynamically
+admitted watched-repository list is shown in Configure, and inactive
+candidates are rechecked periodically. Repository push activity does not
+substitute for GitHub Actions activity. Historical timing data is preserved.
+See [ACTIVITY_BACKFILL.md](docs/ACTIVITY_BACKFILL.md).
+
+Focus rows can now be fixed by **visible text lines** rather than pixels
+(0 = automatic); the header labels have a separately configurable wrap/clip
+mode from table contents. The Surface editor includes **Apply settings to
+another panel** buttons for individual Focus Dual and Focus Vert panes,
+without overwriting their pane names or vertical dimensions.
+
+An experimental **JS popup (no address)** option opens an about:blank popup
+with minimal-chrome flags and then navigates to CISmonWEB, allowing a direct
+comparison with the existing Popup option. Firefox can still enforce its
+address bar; no webpage can guarantee it will be hidden.
+
 ## Display surfaces
 
 CISmonWEB is not limited to one dashboard layout. Display surfaces are persisted profiles that can be switched from the surface bar without restarting repository discovery or resetting monitoring state.
