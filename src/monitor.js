@@ -191,6 +191,9 @@ export class Monitor {
         next.set(name, candidate);
       }
       this.activityCandidates = next;
+      for (const repo of this.repositories) {
+        if (!next.has(repo.fullName)) this.dropRepositoryTracking(repo.fullName);
+      }
       this.repositories = this.repositories.filter(repo => next.has(repo.fullName));
       const queued = new Set(this.activityProbeQueue.filter(name => next.has(name)));
       for (const [name, candidate] of next) {
@@ -238,6 +241,21 @@ export class Monitor {
     return this.providerReady;
   }
 
+  dropRepositoryTracking(fullName) {
+    this.tracker.dropRepository(fullName);
+    const prefix = fullName + "#";
+    for (const map of [this.activeDetailNextMs, this.activeDetailErrors, this.liveJobScans]) {
+      for (const key of map.keys()) if (key.startsWith(prefix)) map.delete(key);
+    }
+    this.backfill = this.backfill.filter(run => run.repository !== fullName);
+    for (const key of this.queuedBackfill) {
+      if (key.startsWith(prefix)) this.queuedBackfill.delete(key);
+    }
+    for (const key of this.checkSnapshots.keys()) {
+      if (key.startsWith(fullName + "@")) this.checkSnapshots.delete(key);
+    }
+  }
+
   async probeActivityCandidate(candidate) {
     const now = Date.now();
     const result = await this.client.get(
@@ -281,6 +299,7 @@ export class Monitor {
       this.repositories = this.repositories.filter(
         repo => repo.fullName !== candidate.fullName
       );
+      this.dropRepositoryTracking(candidate.fullName);
       this.fastSweepQueue = this.fastSweepQueue.filter(
         name => name !== candidate.fullName
       );
@@ -308,6 +327,7 @@ export class Monitor {
     this.config = await this.configStore.update(input);
     this.history.setMaxPerKey(this.config.historyDepth);
     this.repositories = [];
+    this.tracker = new RunTracker();
     this.activityCandidates = new Map();
     this.activityProbeQueue = [];
     this.normalRequestsSinceActivityProbe = 0;
@@ -566,6 +586,7 @@ export class Monitor {
     if (this.config.repositorySelectionMode === "activity" &&
         !shouldKeepRepository(repo, this.config.activeAgeDays, Date.now())) {
       this.repositories = this.repositories.filter(item => item !== repo);
+      this.dropRepositoryTracking(repo.fullName);
       const candidate = this.activityCandidates.get(repo.fullName);
       if (candidate) candidate.nextProbeMs = Date.now() + ACTIVITY_RECHECK_MS;
     }
