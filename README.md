@@ -220,11 +220,16 @@ A new cell-overflow dropdown replaces the wrap checkbox, offering **wrap**,
 divider). Horizontal scrollbars are only enabled when measured column widths
 actually exceed available space, rather than flashing during every refresh.
 
-The surface summary now starts with **active workers**: the number of known
-in-progress GitHub Actions jobs occupying runner slots, not the number of
-workflows. When job detail is missing or stale the displayed value has a `+`
-suffix, indicating a confirmed lower bound rather than pretending the worker
-count is complete. See [Focus grid](docs/FOCUS_GRID.md).
+The surface summary now starts with **active workers**: the number of distinct
+freshly observed in-progress Actions jobs occupying runners, including children
+of GitHub workflows that still report `queued`. The raw GitHub workflow status
+is retained separately; Focus labels such rows **jobs active (N)**. Job lists
+are polled incrementally across all pages (100 entries/page), not truncated
+at the first 100; continued pages use bounded fair scheduling. A `+` means
+the count is a confirmed **lower bound** due to missing, partial, or stale
+job detail (120-second freshness window). Counts cover the configured
+monitored repositories, not every runner on the GitHub account. See
+[Focus grid](docs/FOCUS_GRID.md).
 
 ## Execution-only ETA and advanced Focus columns
 
