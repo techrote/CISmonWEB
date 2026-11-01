@@ -153,7 +153,7 @@ test("Popup footer/row height/check colors and centered cells are wired without 
   assert.match(css,/\.focus-grid-table \.focus-grid-cell/);
   assert.match(css,/text-align:\s*center/);
   assert.match(css,/\.focus-grid-table\[data-fixed-row-height="true"\]/);
-  assert.match(grid,/data set nonsense/.replace("data set nonsense","dataset.fixedRowHeight"));
+  assert.match(grid,/dataset\.fixedRowHeight/);
   assert.match(grid,/focus-check-pass/);
   assert.match(grid,/focus-check-total/);
   assert.match(grid,/focus-check-fail/);
