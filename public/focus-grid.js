@@ -46,10 +46,11 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
   table.dataset.wrap = options.gridOverflowMode ||
     (options.gridWrap ? "wrap" : "ellipsis");
   table.setAttribute("aria-label", key + " workflows");
-  const fixedRowHeight = Number(options.gridRowHeight) || 0;
-  table.dataset.fixedRowHeight = fixedRowHeight > 0 ? "true" : "false";
-  if (fixedRowHeight > 0) {
-    table.style.setProperty("--focus-row-height", fixedRowHeight + "px");
+  const fixedRowLines = Number(options.gridRowLines) || 0;
+  table.dataset.fixedRowHeight = fixedRowLines > 0 ? "true" : "false";
+  table.dataset.headerOverflow = options.gridHeaderOverflowMode || "ellipsis";
+  if (fixedRowLines > 0) {
+    table.style.setProperty("--focus-row-lines", String(fixedRowLines));
   }
   const widths = { ...GRID_DEFAULT_WIDTH, ...(options.gridWidths || {}) };
   const locked = new Set(options.gridLockedWidths || []);

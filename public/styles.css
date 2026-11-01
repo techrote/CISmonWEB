@@ -1175,20 +1175,20 @@ body.minimal-only .focus-vert-pane .focus-grid-wrap {
   align-content: center;
 }
 .focus-grid-table[data-fixed-row-height="true"] .focus-grid-row {
-  height: var(--focus-row-height);
-  max-height: var(--focus-row-height);
+  height: calc(var(--focus-row-lines) * 1lh + 4px);
 }
 .focus-grid-table[data-fixed-row-height="true"] .focus-grid-cell {
-  height: var(--focus-row-height);
-  max-height: var(--focus-row-height);
+  height: calc(var(--focus-row-lines) * 1lh + 4px);
   overflow: hidden !important;
   padding-top: 0;
   padding-bottom: 0;
 }
 .focus-grid-table[data-fixed-row-height="true"] .focus-grid-value {
-  max-height: calc(var(--focus-row-height) - 2px);
+  max-height: calc(var(--focus-row-lines) * 1lh);
   overflow: hidden !important;
-  display: block;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--focus-row-lines);
 }
 .focus-check-progress {
   display: inline-flex;
@@ -1207,3 +1207,19 @@ body.minimal-only .focus-vert-pane .focus-grid-wrap {
   .minimal-summary { grid-column: 1; text-align: center; }
   body.minimal-only .minimal-exit-button { grid-column: 2; }
 }
+
+
+/* Header labels have independent clipping/wrapping controls from cells. */
+.focus-grid-table[data-header-overflow="wrap"] .focus-sort {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  line-height: 1.3;
+}
+.focus-grid-table[data-header-overflow="hard_clip"] .focus-sort {
+  white-space: nowrap;
+  text-overflow: clip;
+  padding-inline: 0;
+}
+.focus-copy-targets { display: flex; flex-wrap: wrap; gap: 6px; padding: 7px 0; }
+.focus-copy-targets .button { font-size: 10px; }

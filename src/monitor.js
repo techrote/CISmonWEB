@@ -1,5 +1,8 @@
 import { RuntimeAnalyzer } from "./core/analyzer.js";
 import { checkTarget, summarizeCheckRuns } from "./check-summary.js";
+import {
+  workflowActivitySummary, shouldKeepRepository, ACTIVITY_RECHECK_MS
+} from "./activity-selection.js";
 import { activeWorkerSummary, observedRunningJobs, observedRunState } from "./worker-summary.js";
 import { buildDashboard } from "./core/dashboard.js";
 import { globMatch } from "./core/glob.js";
@@ -49,6 +52,9 @@ export class Monitor {
     this.analyzer = new RuntimeAnalyzer(history, 32);
     this.policy = new PollPolicy();
     this.repositories = [];
+    this.activityCandidates = new Map();
+    this.activityProbeQueue = [];
+    this.normalRequestsSinceActivityProbe = 0;
     this.backfill = [];
     this.queuedBackfill = new Set();
     this.activeDetailNextMs = new Map();
@@ -168,6 +174,42 @@ export class Monitor {
       return false;
     }
 
+    const activityMode = this.config.repositorySelectionMode === "activity";
+    if (activityMode) {
+      // Candidate discovery does not itself admit a repository. Only a
+      // successful workflow activity probe can put it on the watched list.
+      const eligible = response.json
+        .map(repo => repo.full_name)
+        .filter(name => name && this.repositoryAllowed(name))
+        .slice(0, this.config.maxRepositories);
+      const old = this.activityCandidates;
+      const next = new Map();
+      for (const name of eligible) {
+        const candidate = old.get(name) || {
+          fullName: name, lastProbeMs: 0, nextProbeMs: 0, errors: 0
+        };
+        next.set(name, candidate);
+      }
+      this.activityCandidates = next;
+      for (const repo of this.repositories) {
+        if (!next.has(repo.fullName)) this.dropRepositoryTracking(repo.fullName);
+      }
+      this.repositories = this.repositories.filter(repo => next.has(repo.fullName));
+      const queued = new Set(this.activityProbeQueue.filter(name => next.has(name)));
+      for (const [name, candidate] of next) {
+        if (!this.repositories.some(repo => repo.fullName === name) &&
+            candidate.nextProbeMs <= Date.now()) queued.add(name);
+      }
+      this.activityProbeQueue = [...queued];
+      this.providerReady = eligible.length > 0;
+      this.nextDiscoveryMs = Date.now() + REPOSITORY_CATALOG_REFRESH_MS;
+      if (this.providerReady) this.clearFailure("repository discovery");
+      else this.reportFailure("repository discovery", {
+        error: "no matching repository candidates"
+      }, Date.now());
+      return this.providerReady;
+    }
+
     const previous = new Map(this.repositories.map((repo) => [repo.fullName, repo]));
     const names = response.json
       .map((repo) => repo.full_name)
@@ -199,10 +241,96 @@ export class Monitor {
     return this.providerReady;
   }
 
+  dropRepositoryTracking(fullName) {
+    this.tracker.dropRepository(fullName);
+    const prefix = fullName + "#";
+    for (const map of [this.activeDetailNextMs, this.activeDetailErrors, this.liveJobScans]) {
+      for (const key of map.keys()) if (key.startsWith(prefix)) map.delete(key);
+    }
+    this.backfill = this.backfill.filter(run => run.repository !== fullName);
+    for (const key of this.queuedBackfill) {
+      if (key.startsWith(prefix)) this.queuedBackfill.delete(key);
+    }
+    for (const key of this.checkSnapshots.keys()) {
+      if (key.startsWith(fullName + "@")) this.checkSnapshots.delete(key);
+    }
+  }
+
+  async probeActivityCandidate(candidate) {
+    const now = Date.now();
+    const result = await this.client.get(
+      "/repos/" + candidate.fullName + "/actions/runs?per_page=10"
+    );
+    this.updateRate(result, now);
+    candidate.lastProbeMs = now;
+    if (!result.ok || !Array.isArray(result.json?.workflow_runs)) {
+      candidate.errors++;
+      candidate.nextProbeMs = now + this.policy.nextInterval(
+        false, false, 0, candidate.errors
+      );
+      this.reportFailure("activity:" + candidate.fullName, result, Date.now());
+      // A transient failure cannot de-admit an existing monitored repo.
+      return false;
+    }
+    candidate.errors = 0;
+    this.clearFailure("activity:" + candidate.fullName);
+    candidate.nextProbeMs = now + ACTIVITY_RECHECK_MS;
+    const summary = workflowActivitySummary(
+      result.json.workflow_runs, this.config.activeAgeDays, now
+    );
+    const existing = this.repositories.find(repo => repo.fullName === candidate.fullName);
+    if (summary.admitted) {
+      if (!existing) {
+        this.repositories.push({
+          fullName: candidate.fullName, etag: "", errors: 0,
+          nextPollMs: 0, lastPollMs: 0, pollCount: 0,
+          successfulPollCount: 0, lastSuccessAtMs: 0,
+          lastResponseStatus: 0, lastActivityMs: summary.newestActivityMs,
+          latestUpdatedEpoch: 0, hadActive: summary.live, hadQueued: false
+        });
+        if (!this.fastSweepQueue.includes(candidate.fullName)) {
+          this.fastSweepQueue.push(candidate.fullName);
+          this.fastSweepReason = "admitted activity";
+        }
+      }
+    } else if (existing && !existing.hadActive && !existing.hadQueued) {
+      // No new workflow activity within the age window: remove from the
+      // monitored set. The independent historical journal is unchanged.
+      this.repositories = this.repositories.filter(
+        repo => repo.fullName !== candidate.fullName
+      );
+      this.dropRepositoryTracking(candidate.fullName);
+      this.fastSweepQueue = this.fastSweepQueue.filter(
+        name => name !== candidate.fullName
+      );
+    }
+    return true;
+  }
+
+  nextActivityCandidate(nowMs) {
+    if (this.config.repositorySelectionMode !== "activity") return null;
+    while (this.activityProbeQueue.length) {
+      const name = this.activityProbeQueue.shift();
+      const candidate = this.activityCandidates.get(name);
+      if (!candidate) continue;
+      if (candidate.nextProbeMs > nowMs) continue;
+      return candidate;
+    }
+    for (const candidate of this.activityCandidates.values()) {
+      if (this.repositories.some(repo => repo.fullName === candidate.fullName)) continue;
+      if (candidate.nextProbeMs <= nowMs) return candidate;
+    }
+    return null;
+  }
+
   async applyConfig(input) {
     this.config = await this.configStore.update(input);
     this.history.setMaxPerKey(this.config.historyDepth);
     this.repositories = [];
+    this.tracker = new RunTracker();
+    this.activityCandidates = new Map();
+    this.activityProbeQueue = [];
+    this.normalRequestsSinceActivityProbe = 0;
     this.backfill = [];
     this.queuedBackfill.clear();
     this.activeDetailNextMs.clear();
@@ -233,6 +361,14 @@ export class Monitor {
     for (const key of this.activeDetailNextMs.keys()) this.activeDetailNextMs.set(key, 0);
     this.activeDetailStreak = 0;
     this.liveRepoStreak = 0;
+    if (this.config.repositorySelectionMode === "activity") {
+      this.activityProbeQueue = [...this.activityCandidates.keys()].filter(
+        name => !this.repositories.some(repo => repo.fullName === name)
+      );
+      for (const name of this.activityProbeQueue) {
+        this.activityCandidates.get(name).nextProbeMs = 0;
+      }
+    }
     this.startFastSweep("manual");
     return true;
   }
@@ -447,6 +583,13 @@ export class Monitor {
     repo.hadQueued = hasQueued;
     const age = repo.lastActivityMs ? nowMs - repo.lastActivityMs : this.policy.warmWindowMs * 10;
     repo.nextPollMs = nowMs + this.policy.nextInterval(hasActive, hasQueued, age, 0);
+    if (this.config.repositorySelectionMode === "activity" &&
+        !shouldKeepRepository(repo, this.config.activeAgeDays, Date.now())) {
+      this.repositories = this.repositories.filter(item => item !== repo);
+      this.dropRepositoryTracking(repo.fullName);
+      const candidate = this.activityCandidates.get(repo.fullName);
+      if (candidate) candidate.nextProbeMs = Date.now() + ACTIVITY_RECHECK_MS;
+    }
     return true;
   }
 
@@ -602,6 +745,17 @@ export class Monitor {
         return;
       }
 
+      const activityCandidate = this.config.repositorySelectionMode === "activity" &&
+        (this.repositories.length === 0 ||
+          this.normalRequestsSinceActivityProbe >= 6)
+        ? this.nextActivityCandidate(nowMs) : null;
+      if (activityCandidate) {
+        await this.probeActivityCandidate(activityCandidate);
+        this.normalRequestsSinceActivityProbe = 0;
+        this.lastSchedulerAction = "activity-probe:" + activityCandidate.fullName;
+        this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
+        return;
+      }
       const active = dueActiveRun(this.tracker.all(), this.activeDetailNextMs, nowMs, detailKey);
       const repo = duePriorityRepository(
         this.repositories, nowMs, this.liveRepoStreak, MAX_LIVE_REPO_BURST
@@ -620,12 +774,14 @@ export class Monitor {
 
       if (shouldServiceActive(active, repo, this.activeDetailStreak, ACTIVE_DETAIL_BURST_LIMIT)) {
         await this.serviceLiveDetail(active, nowMs);
+        this.normalRequestsSinceActivityProbe++;
         this.normalRequestsSinceCheck++;
         return;
       }
 
       if (repo) {
         await this.pollRepository(repo, nowMs);
+        this.normalRequestsSinceActivityProbe++;
         this.normalRequestsSinceCheck++;
         this.liveRepoStreak = (repo.hadActive || repo.hadQueued)
           ? this.liveRepoStreak + 1 : 0;
@@ -637,6 +793,15 @@ export class Monitor {
 
       if (active) {
         await this.serviceLiveDetail(active, nowMs);
+        return;
+      }
+
+      const remainingCandidate = this.nextActivityCandidate(nowMs);
+      if (remainingCandidate) {
+        await this.probeActivityCandidate(remainingCandidate);
+        this.normalRequestsSinceActivityProbe = 0;
+        this.lastSchedulerAction = "activity-probe:" + remainingCandidate.fullName;
+        this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
         return;
       }
 
@@ -718,6 +883,11 @@ export class Monitor {
     return {
       providerReady: this.providerReady,
       repositoryCount: this.repositories.length,
+      candidateRepositoryCount: this.config.repositorySelectionMode === "activity"
+        ? this.activityCandidates.size : this.repositories.length,
+      pendingActivityProbeCount: this.activityProbeQueue.length,
+      repositorySelectionMode: this.config.repositorySelectionMode,
+      watchedRepositories: this.repositories.map(repo => repo.fullName),
       scannedRepositoryCount,
       attemptedRepositoryCount,
       failedInitialScanCount,

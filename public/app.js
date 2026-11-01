@@ -422,7 +422,19 @@ function renderDashboard(state) {
   elements.emptyState.hidden = fun || rows.length !== 0;
 
   if (rows.length === 0) {
-    if (state.scannedRepositoryCount < state.repositoryCount) {
+    if (state.repositorySelectionMode === "activity" &&
+        state.pendingActivityProbeCount > 0) {
+      elements.emptyTitle.textContent = "Checking workflow activity…";
+      elements.emptyDetail.textContent =
+        state.pendingActivityProbeCount + " eligible repositories awaiting activity probes. " +
+        state.repositoryCount + " admitted to monitoring so far.";
+    } else if (state.repositorySelectionMode === "activity" &&
+        state.repositoryCount === 0 && state.candidateRepositoryCount > 0) {
+      elements.emptyTitle.textContent = "No active repositories admitted.";
+      elements.emptyDetail.textContent =
+        "No recently updated GitHub Actions workflows matched the " +
+        (config.activeAgeDays || 7) + "-day window. Inactive repositories are rechecked.";
+    } else if (state.scannedRepositoryCount < state.repositoryCount) {
       elements.emptyTitle.textContent = "Scanning repositories…";
       elements.emptyDetail.textContent =
         state.scannedRepositoryCount + " of " + state.repositoryCount +
@@ -592,6 +604,10 @@ async function pollState() {
     const state = await api("/api/state");
     renderSyncHealth(state);
     elements.repoCount.textContent = String(state.repositoryCount);
+    elements.repoCount.title = state.repositorySelectionMode === "activity"
+      ? state.repositoryCount + " watched / " + state.candidateRepositoryCount +
+        " eligible repositories (activity-based)"
+      : state.repositoryCount + " watched repositories";
     elements.scannedRepoCount.textContent =
       String(state.scannedRepositoryCount) + "/" + String(state.repositoryCount);
     elements.trackedCount.textContent = String(state.trackedRunCount);
@@ -606,11 +622,18 @@ async function pollState() {
     elements.errorBanner.dataset.kind = /HTTP 50[0-9]|request timeout|network request failed/.test(state.lastError || "")
       ? "transient" : "error";
 
+    const pendingActivity = state.repositorySelectionMode === "activity" &&
+      (state.pendingActivityProbeCount || 0) > 0;
     const incomplete = state.scannedRepositoryCount < state.repositoryCount;
     const unfinished = state.pendingSweepCount > 0 ||
       state.attemptedRepositoryCount < state.repositoryCount;
-    elements.scanBanner.hidden = !incomplete;
-    elements.scanBanner.textContent = incomplete
+    elements.scanBanner.hidden = !incomplete && !pendingActivity;
+    elements.scanBanner.textContent = pendingActivity
+      ? "Activity-based discovery: " + state.repositoryCount + "/" +
+        state.candidateRepositoryCount + " repositories admitted; " +
+        state.pendingActivityProbeCount + " awaiting workflow-activity checks (age " +
+        (config.activeAgeDays || 7) + " days)."
+      : incomplete
       ? unfinished
         ? "Repository sweep " + state.scannedRepositoryCount + "/" + state.repositoryCount +
           " confirmed · " + state.pendingSweepCount + " pending" +
@@ -763,6 +786,8 @@ async function openSettings() {
   $("#githubToken").value = "";
   $("#githubOwner").value = config.githubOwner || "";
   $("#maxRepositories").value = config.maxRepositories;
+  $("#repositorySelectionMode").value = config.repositorySelectionMode || "activity";
+  $("#activeAgeDays").value = config.activeAgeDays || 7;
   $("#historyDepth").value = config.historyDepth;
   $("#backfillRunsPerRepo").value = config.backfillRunsPerRepo;
   $("#includePatterns").value = (config.includePatterns || []).join("\n");
@@ -771,6 +796,11 @@ async function openSettings() {
   $("#tokenState").textContent = config.hasGithubToken
     ? "A token is stored locally. Leave blank to keep it."
     : "No token stored.";
+  const monitorState = latestState || await api("/api/state");
+  $("#watchedRepoList").textContent =
+    (monitorState.watchedRepositories || []).join("\n") ||
+    "No repositories currently admitted; activity probes may still be running.";
+
   elements.settingsStatus.textContent = "";
   elements.settingsDialog.showModal();
 }
@@ -823,6 +853,67 @@ function writeFieldEditor(selector, fields) {
     container.append(label);
   }
 }
+// Applying changes is a draft-only operation: target names and Vert heights
+// are retained, and normal Save surfaces persists all profiles together.
+const COPIED_FOCUS_FIELDS = [
+  "repositoryPatterns", "workflowPatterns", "eventPatterns", "minAttention",
+  "showInProgress", "showQueued", "showSuccess", "showFailures",
+  "showOtherCompleted", "watchedOnly", "stallsOnly", "maxItems",
+  "gridFields", "gridWidths", "gridRowLines", "gridOverflowMode",
+  "gridHeaderOverflowMode", "gridSortBy", "gridSortDir",
+  "gridSortSecondaryBy", "gridSortSecondaryDir", "gridLockedWidths",
+  "gridAddedFormat", "gridUpdatedFormat", "gridAddedPattern", "gridUpdatedPattern"
+];
+function currentFocusSource() {
+  const source = editingSurfaces.find(surface => surface.id === editingSurfaceId);
+  if (!source) return null;
+  if (source.layout === "focus_dual") return source.dualPanes[editingPaneIndex];
+  if (source.layout === "focus_vert") return source.vertPanes[editingPaneIndex];
+  return source;
+}
+function applyFocusToPanel(destinationId, kind, index) {
+  commitEditorFormToDraft();
+  const source = currentFocusSource();
+  const destination = editingSurfaces.find(item => item.id === destinationId);
+  if (!source || !destination) return;
+  const field = kind === "vert" ? "vertPanes" : "dualPanes";
+  if (!destination[field]?.[index]) return;
+  const patch = Object.fromEntries(
+    COPIED_FOCUS_FIELDS.filter(key => Object.prototype.hasOwnProperty.call(source, key))
+      .map(key => [key, structuredClone(source[key])])
+  );
+  // Preserve destination-specific name and physical panel dimensions.
+  const original = destination[field][index];
+  const newPanel = { ...original, ...patch };
+  destination[field][index] = kind === "vert"
+    ? normalizeVertPanes(destination[field].map((panel, i) => i === index ? newPanel : panel),
+      destination.vertCount, destination)[index]
+    : normalizePane(newPanel, index, destination);
+  elements.surfaceStatus.textContent = "Copied to " + destination.name +
+    " / " + original.name + ". Save surfaces to persist.";
+  renderFocusCopyTargets();
+}
+function renderFocusCopyTargets() {
+  const target = $("#focusCopyTargets");
+  target.replaceChildren();
+  for (const surface of editingSurfaces) {
+    const kind = surface.layout === "focus_vert" ? "vert" :
+      surface.layout === "focus_dual" ? "dual" : null;
+    if (!kind) continue;
+    const panes = kind === "vert" ? surface.vertPanes : surface.dualPanes;
+    for (let i = 0; i < panes.length; i++) {
+      if (surface.id === editingSurfaceId && editingPaneIndex === i) continue;
+      const button = node("button", "button secondary",
+        surface.name + " / " + panes[i].name);
+      button.type = "button";
+      button.addEventListener("click", () => applyFocusToPanel(surface.id, kind, i));
+      target.append(button);
+    }
+  }
+  if (!target.children.length) target.append(node("span", "surface-help",
+    "No other Focus Dual or Focus Vert panels available."));
+}
+
 function readFieldEditor(selector) {
   return [...$(selector).querySelectorAll(".grid-field-chip")]
     .filter(chip => chip.querySelector("input").checked)
@@ -840,7 +931,8 @@ function writePaneForm(pane) {
   $("#dualPaneAddedDatePattern").value = pane.gridAddedPattern || "YYYY-MM-DD HH:mm";
   $("#dualPaneUpdatedDatePattern").value = pane.gridUpdatedPattern || "YYYY-MM-DD HH:mm";
   $("#dualPaneMax").value = pane.maxItems;
-  $("#dualPaneRowHeight").value = pane.gridRowHeight ?? 0;
+  $("#dualPaneRowHeight").value = pane.gridRowLines ?? 0;
+  $("#dualPaneHeaderOverflow").value = pane.gridHeaderOverflowMode || "ellipsis";
   $("#dualPaneDensity").value = pane.density || "compact";
   $("#dualPaneAttention").value = pane.minAttention;
   $("#dualPaneOverflow").value = pane.gridOverflowMode || (pane.gridWrap ? "wrap" : "ellipsis");
@@ -884,7 +976,8 @@ function commitPaneForm() {
     gridAddedPattern: $("#dualPaneAddedDatePattern").value,
     gridUpdatedPattern: $("#dualPaneUpdatedDatePattern").value,
     maxItems: Number($("#dualPaneMax").value),
-    gridRowHeight: Number($("#dualPaneRowHeight").value),
+    gridRowLines: Number($("#dualPaneRowHeight").value),
+    gridHeaderOverflowMode: $("#dualPaneHeaderOverflow").value,
     density: $("#dualPaneDensity").value,
     minAttention: $("#dualPaneAttention").value,
     gridWrap: $("#dualPaneOverflow").value === "wrap",
@@ -945,7 +1038,8 @@ function writeSurfaceForm(surface) {
   $("#surfaceName").value = surface.name;
   $("#surfaceGridOverflow").value = surface.gridOverflowMode || (surface.gridWrap ? "wrap" : "ellipsis");
   $("#surfaceGridSort").value = surface.gridSortBy;
-  $("#surfaceGridRowHeight").value = surface.gridRowHeight ?? 0;
+  $("#surfaceGridRowHeight").value = surface.gridRowLines ?? 0;
+  $("#surfaceHeaderOverflow").value = surface.gridHeaderOverflowMode || "ellipsis";
   $("#surfaceGridDirection").value = surface.gridSortDir;
   $("#surfaceGridSecondarySort").value = surface.gridSortSecondaryBy || "";
   $("#surfaceGridSecondaryDirection").value = surface.gridSortSecondaryDir || "desc";
@@ -955,6 +1049,7 @@ function writeSurfaceForm(surface) {
   $("#surfaceUpdatedDatePattern").value = surface.gridUpdatedPattern || "YYYY-MM-DD HH:mm";
   writeFieldEditor("#gridFieldEditor", surface.gridFields);
   updateDualSection(surface);
+  renderFocusCopyTargets();
   $("#surfaceLayout").value = surface.layout;
   $("#surfaceDensity").value = surface.density;
   $("#surfaceTheme").value = surface.theme;
@@ -998,7 +1093,8 @@ function readSurfaceForm(existing) {
     gridWrap: $("#surfaceGridOverflow").value === "wrap",
     gridOverflowMode: $("#surfaceGridOverflow").value,
     gridSortBy: $("#surfaceGridSort").value,
-    gridRowHeight: Number($("#surfaceGridRowHeight").value),
+    gridRowLines: Number($("#surfaceGridRowHeight").value),
+    gridHeaderOverflowMode: $("#surfaceHeaderOverflow").value,
     gridSortDir: $("#surfaceGridDirection").value,
     gridSortSecondaryBy: $("#surfaceGridSecondarySort").value,
     gridSortSecondaryDir: $("#surfaceGridSecondaryDirection").value,
@@ -1191,6 +1287,8 @@ elements.settingsForm.addEventListener("submit", async (event) => {
         clearGithubToken: $("#clearGithubToken").checked,
         githubOwner: $("#githubOwner").value,
         maxRepositories: Number($("#maxRepositories").value),
+        repositorySelectionMode: $("#repositorySelectionMode").value,
+        activeAgeDays: Number($("#activeAgeDays").value),
         historyDepth: Number($("#historyDepth").value),
         backfillRunsPerRepo: Number($("#backfillRunsPerRepo").value),
         includePatterns: $("#includePatterns").value,
@@ -1253,6 +1351,23 @@ $("#popupButton").addEventListener("click", () => {
   // popup=yes is advisory; deliberately do not call this outside a user click.
   window.open(url.href, "CISmonWEB_Surface",
     "popup=yes,toolbar=no,location=no,menubar=no,status=no,resizable=yes,scrollbars=yes,width=1160,height=760");
+});
+
+// Experimental alternate popup creation: create a restricted about:blank
+// popup synchronously inside the click, then navigate its Location. Firefox
+// may still enforce a read-only URL bar; JS cannot suppress browser chrome.
+$("#popupBlankButton").addEventListener("click", () => {
+  const url = new URL(location.href);
+  url.searchParams.set("surface", activeSurface().id);
+  url.searchParams.set("minimal", "1");
+  const child = window.open("about:blank", "_blank",
+    "popup=yes,toolbar=no,location=no,menubar=no,status=no,personalbar=no,scrollbars=yes,resizable=yes,width=1160,height=760");
+  if (!child) {
+    elements.errorBanner.hidden = false;
+    elements.errorBanner.textContent = "Popup blocked by Firefox. Allow popups for 127.0.0.1.";
+    return;
+  }
+  child.location.replace(url.href);
 });
 
 $("#fullscreenButton").addEventListener("click", async () => {

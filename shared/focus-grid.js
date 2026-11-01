@@ -102,6 +102,15 @@ export function normalizeGridFields(input, fallback = DEFAULT_FOCUS_COLUMNS) {
   }).slice(0, GRID_FIELDS.length);
 }
 
+export const GRID_ROW_LINE_LIMIT = 12;
+export function normalizeGridRowLines(value, legacyPixels = 0) {
+  const numeric = value === undefined || value === null
+    ? (Number(legacyPixels) > 0 ? Math.max(1, Math.round(Number(legacyPixels) / 16)) : 0)
+    : Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+  return Math.max(1, Math.min(GRID_ROW_LINE_LIMIT, Math.round(numeric)));
+}
+
 export function normalizeGridRowHeight(value) {
   const size = Number(value);
   if (!Number.isFinite(size) || size <= 0) return 0;
@@ -149,6 +158,9 @@ export function normalizePane(input = {}, index = 0, parent = {}) {
     gridFields: normalizeGridFields(input.gridFields, parent.gridFields || DEFAULT_FOCUS_COLUMNS),
     gridWidths: normalizeGridWidths(input.gridWidths),
     gridRowHeight: normalizeGridRowHeight(input.gridRowHeight ?? parent.gridRowHeight ?? 0),
+    gridRowLines: normalizeGridRowLines(input.gridRowLines,
+      input.gridRowHeight ?? parent.gridRowHeight ?? 0),
+    gridHeaderOverflowMode: normalizeGridOverflowMode(input.gridHeaderOverflowMode, false),
     gridWrap: boolean(input.gridWrap, parent.gridWrap ?? false),
     gridOverflowMode: normalizeGridOverflowMode(input.gridOverflowMode,
       boolean(input.gridWrap, parent.gridWrap ?? false)),

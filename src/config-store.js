@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { DEFAULT_SURFACES, normalizeSurfaces } from "../shared/surfaces.js";
 import { FUN_PRESET_VERSION, migrateFunPresets } from "../shared/fun-core.js";
+import { normalizeSelectionMode, normalizeActiveAgeDays } from "./activity-selection.js";
 
 export const DEFAULT_CONFIG = Object.freeze({
   githubToken: "",
@@ -12,6 +13,8 @@ export const DEFAULT_CONFIG = Object.freeze({
   maxRepositories: 20,
   historyDepth: 64,
   backfillRunsPerRepo: 4,
+  repositorySelectionMode: "activity",
+  activeAgeDays: 7,
   activeSurfaceId: "focus",
   surfaces: DEFAULT_SURFACES,
   surfacePresetVersion: FUN_PRESET_VERSION,
@@ -76,6 +79,8 @@ export class ConfigStore {
       maxRepositories: Math.min(100, Math.max(1, Number(value.maxRepositories) || DEFAULT_CONFIG.maxRepositories)),
       historyDepth: Math.min(256, Math.max(8, Number(value.historyDepth) || DEFAULT_CONFIG.historyDepth)),
       backfillRunsPerRepo: Math.min(20, Math.max(1, Number(value.backfillRunsPerRepo) || DEFAULT_CONFIG.backfillRunsPerRepo)),
+      repositorySelectionMode: normalizeSelectionMode(value.repositorySelectionMode),
+      activeAgeDays: normalizeActiveAgeDays(value.activeAgeDays),
       surfaces,
       activeSurfaceId
     };

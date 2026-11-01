@@ -98,6 +98,14 @@ export class RunTracker {
     return true;
   }
 
+  dropRepository(repository) {
+    // Admission changes must not leave old live runs consuming detail
+    // scheduler slots or appearing in surfaces after a repo is unwatched.
+    for (const key of this.runs.keys()) {
+      if (key.startsWith(repository + "#")) this.runs.delete(key);
+    }
+  }
+
   all() {
     return [...this.runs.values()];
   }
