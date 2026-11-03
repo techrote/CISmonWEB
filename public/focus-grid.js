@@ -1,6 +1,6 @@
 import {
   GRID_DEFAULT_WIDTH, GRID_LABEL, GRID_MIN_WIDTH, gridFieldRaw, formatGridDate,
-  normalizeGridFields, reorderGridFields, separatorBreakSegments, sortGridRows
+  normalizeGridFields, reorderGridFields, separatorBreakSegments, durationBreakSegments, sortGridRows
 } from "/focus-grid.js";
 
 const make = (tag, className = "", text) => {
@@ -13,8 +13,7 @@ const make = (tag, className = "", text) => {
 
 // Inject discretionary browser-native break opportunities without modifying
 // displayed text, source values or tooltip strings. Never use innerHTML.
-function appendSeparatorBreaks(node, originalText) {
-  const parts = separatorBreakSegments(originalText);
+function appendBreakSegments(node, parts) {
   if (parts.length === 1) return;
   node.replaceChildren();
   for (let i = 0; i < parts.length; i++) {
@@ -22,6 +21,11 @@ function appendSeparatorBreaks(node, originalText) {
     if (i !== parts.length - 1) node.append(document.createElement("wbr"));
   }
 }
+function appendSeparatorBreaks(node, originalText) {
+  appendBreakSegments(node, separatorBreakSegments(originalText));
+}
+
+const DURATION_FIELDS = new Set(["elapsed", "remaining", "stageRemaining", "baseline"]);
 
 function duration(ms) {
   if (!Number.isFinite(ms) || ms <= 0) return "—";
@@ -234,9 +238,11 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
       } else {
         const v = display(row, field, options);
         const value = make("span", "focus-grid-value", v);
-        if (table.dataset.wrap === "wrap" &&
-            options.gridBreakAfterSeparators !== false) {
-          appendSeparatorBreaks(value, v);
+        const durationField = DURATION_FIELDS.has(field);
+        if (durationField) value.dataset.duration = "true";
+        if (table.dataset.wrap === "wrap") {
+          if (durationField) appendBreakSegments(value, durationBreakSegments(v));
+          else if (options.gridBreakAfterSeparators !== false) appendSeparatorBreaks(value, v);
         }
         value.title = field === "elapsed" && row.elapsedLowerBound
           ? "Lower bound: time since CISmonWEB first observed this workflow running. " +

@@ -62,10 +62,11 @@ mode from table contents. The Surface editor includes **Apply settings to
 another panel** buttons for individual Focus Dual and Focus Vert panes,
 without overwriting their pane names or vertical dimensions.
 
-An experimental **JS popup (no address)** option opens an about:blank popup
-with minimal-chrome flags and then navigates to CISmonWEB, allowing a direct
-comparison with the existing Popup option. Firefox can still enforce its
-address bar; no webpage can guarantee it will be hidden.
+**Popup** is browser-controlled and may retain a read-only Firefox address bar.
+The former **JS popup (no address)** experiment was removed because opening
+`about:blank` first cannot hide browser chrome. **Surface fullscreen** instead
+provides a real no-address-bar display by entering fullscreen and surface-only
+mode together; it fills the monitor, not a small independent window.
 
 ## Display surfaces
 

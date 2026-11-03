@@ -1351,8 +1351,14 @@ function setMinimalSurface(value) {
   history.replaceState(null, "", url);
   applySurfaceVisuals();
 }
+let surfaceFullscreenOwned = false;
 $("#borderlessButton").addEventListener("click", () => setMinimalSurface(true));
-$("#exitBorderlessButton").addEventListener("click", () => setMinimalSurface(false));
+$("#exitBorderlessButton").addEventListener("click", () => {
+  if (surfaceFullscreenOwned && document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+  }
+  setMinimalSurface(false);
+});
 $("#popupButton").addEventListener("click", () => {
   const url = new URL(location.href);
   url.searchParams.set("surface", activeSurface().id);
@@ -1363,21 +1369,24 @@ $("#popupButton").addEventListener("click", () => {
     "popup=yes,toolbar=no,location=no,menubar=no,status=no,resizable=yes,scrollbars=yes,width=1160,height=760");
 });
 
-// Experimental alternate popup creation: create a restricted about:blank
-// popup synchronously inside the click, then navigate its Location. Firefox
-// may still enforce a read-only URL bar; JS cannot suppress browser chrome.
-$("#popupBlankButton").addEventListener("click", () => {
-  const url = new URL(location.href);
-  url.searchParams.set("surface", activeSurface().id);
-  url.searchParams.set("minimal", "1");
-  const child = window.open("about:blank", "_blank",
-    "popup=yes,toolbar=no,location=no,menubar=no,status=no,personalbar=no,scrollbars=yes,resizable=yes,width=1160,height=760");
-  if (!child) {
+// A page cannot remove Firefox's popup address bar via window.open features.
+// User-initiated fullscreen is the supported browser-controlled alternative;
+// unlike a popup, this fills the monitor.
+$("#surfaceFullscreenButton").addEventListener("click", async () => {
+  try {
+    await document.documentElement.requestFullscreen({ navigationUI: "hide" });
+    surfaceFullscreenOwned = true;
+    setMinimalSurface(true);
+  } catch {
     elements.errorBanner.hidden = false;
-    elements.errorBanner.textContent = "Popup blocked by Firefox. Allow popups for 127.0.0.1.";
-    return;
+    elements.errorBanner.textContent = "Fullscreen unavailable. Check browser fullscreen permissions.";
   }
-  child.location.replace(url.href);
+});
+document.addEventListener("fullscreenchange", () => {
+  if (!document.fullscreenElement && surfaceFullscreenOwned) {
+    surfaceFullscreenOwned = false;
+    setMinimalSurface(false);
+  }
 });
 
 $("#fullscreenButton").addEventListener("click", async () => {
