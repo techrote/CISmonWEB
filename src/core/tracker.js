@@ -105,9 +105,12 @@ export class RunTracker {
     return this.runs.get(id(repository, runId)) || null;
   }
 
-  acknowledge(repository, runId) {
+  acknowledge(repository, runId, runAttempt = 1) {
     const run = this.find(repository, runId);
-    if (!run) return false;
+    // Run IDs survive reruns. A delayed action may only acknowledge the
+    // attempt the caller saw; legacy callers are limited to attempt 1.
+    if (!run || !Number.isSafeInteger(runAttempt) || runAttempt < 1 ||
+        runAttempt !== Number(run.snapshot.runAttempt || 1)) return false;
     run.acknowledged = true;
     return true;
   }

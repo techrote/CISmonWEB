@@ -38,7 +38,10 @@ class Element {
   close() { this.open = false; void this.dispatch("close"); }
 }
 
-const original = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
+// Git may check browser sources out with CRLF on Windows. Normalize line
+// endings before removing imports for the VM harness, preserving the module.
+const original = (await readFile(new URL("../public/app.js", import.meta.url), "utf8"))
+  .replace(/\r\n/g, "\n");
 assert.match(original, /\nawait boot\(\);\s*$/);
 const source = original.replace(/^import[\s\S]*?from "[^"]+";\n/gm, "")
   .replace(/\nawait boot\(\);\s*$/, "");
@@ -277,6 +280,24 @@ test("finishing an old acknowledgement does not close a newer run dialog", async
   assert.match(ui.element("#detailTitle").textContent, /Build 2/);
   assert.equal(ui.element("#detailDialog").open, true);
   assert.equal(ui.run("selectedRun.runId"), 2);
+});
+
+test("acknowledgement carries the displayed attempt and reports a superseded attempt", async () => {
+  let sent;
+  const ui = app(async (url, options) => {
+    if (url === "/api/acknowledge") {
+      sent = JSON.parse(options.body);
+      return { httpStatus: 409, body: { error: "run attempt changed; reopen run details" } };
+    }
+    return { ...detail(1), runAttempt: 3, analysis: { attention: "action_required" } };
+  });
+  await ui.run('openDetail("owner/repo", 1)');
+  const button = ui.element("#detailActions").children[1];
+  await button.dispatch("click");
+  assert.deepEqual(sent, { repository: "owner/repo", runId: 1, runAttempt: 3 });
+  assert.equal(ui.element("#detailDialog").open, true);
+  assert.equal(button.disabled, false);
+  assert.match(ui.element("#errorBanner").textContent, /attempt changed/);
 });
 
 test("a failed detail action reports an error and releases its disabled control", async () => {

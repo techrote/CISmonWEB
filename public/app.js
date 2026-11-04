@@ -771,7 +771,7 @@ async function renderDetail(repository, runId, show = true) {
     elements.detailActions.append(actionButton("Acknowledge failure", async () => {
       await api("/api/acknowledge", {
         method: "POST",
-        body: JSON.stringify({ repository, runId })
+        body: JSON.stringify({ repository, runId, runAttempt: detail.runAttempt || 1 })
       });
       if (selectedRun === selection) elements.detailDialog.close();
       await pollState();

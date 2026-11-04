@@ -211,7 +211,18 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && url.pathname === "/api/acknowledge") {
       const body = await readJson(req);
-      return json(res, monitor.tracker.acknowledge(body.repository, Number(body.runId)) ? 200 : 404, { ok: true });
+      const runAttempt = body.runAttempt === undefined ? 1 : body.runAttempt;
+      if (!Number.isSafeInteger(runAttempt) || runAttempt < 1) {
+        throw new HttpError(400, "runAttempt must be a positive integer");
+      }
+      const runId = Number(body.runId);
+      if (!monitor.tracker.find(body.repository, runId)) {
+        throw new HttpError(404, "run not found");
+      }
+      if (!monitor.tracker.acknowledge(body.repository, runId, runAttempt)) {
+        throw new HttpError(409, "run attempt changed; reopen run details");
+      }
+      return json(res, 200, { ok: true });
     }
 
     if (req.method === "POST" && url.pathname === "/api/watch") {

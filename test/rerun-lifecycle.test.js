@@ -31,6 +31,24 @@ test("acknowledging an earlier attempt never hides a new rerun failure", () => {
   assert.equal(tracker.visible((epoch + 10_000) * 1000, 1000, 1000).length, 1);
 });
 
+test("a delayed acknowledgement cannot acknowledge a newer attempt", () => {
+  const tracker = new RunTracker();
+  const first = run();
+  tracker.upsert(first, (epoch + 10) * 1000);
+  tracker.upsert(run({ runAttempt: 2 }), (epoch + 30) * 1000);
+  assert.equal(tracker.acknowledge(first.repository, first.runId, 1), false);
+  assert.equal(tracker.acknowledge(first.repository, first.runId), false,
+    "legacy callers without an attempt may only acknowledge attempt 1");
+  tracker.upsert(run({ runAttempt: 2, state: RunState.Completed,
+    conclusion: Conclusion.Failure, updatedAtEpoch: epoch + 40 }), (epoch + 40) * 1000);
+  assert.equal(tracker.visible((epoch + 10_000) * 1000, 1000, 1000).length, 1);
+  for (const attempt of [0, -1, 1.5, NaN]) {
+    assert.equal(tracker.acknowledge(first.repository, first.runId, attempt), false);
+  }
+  assert.equal(tracker.acknowledge(first.repository, first.runId, 2), true);
+  assert.equal(tracker.visible((epoch + 10_000) * 1000, 1000, 1000).length, 0);
+});
+
 test("an old attempt response cannot replace the current rerun or its job evidence", () => {
   const tracker = new RunTracker();
   const current = run({ runAttempt: 2, jobsFetchedAtMs: (epoch + 50) * 1000,

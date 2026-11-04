@@ -134,13 +134,33 @@ test("JSON request limits count UTF-8 bytes and preserve codepoints split across
   assert.equal((await fetch(base + "/api/state")).status, 200, "the server must survive rejected bodies");
 });
 
+test("acknowledgement validates attempt identity at the HTTP boundary", async (t) => {
+  const { base } = await startServer(t);
+  for (const runAttempt of [null, 0, -1, 1.5, "2"]) {
+    const response = await request(base, "/api/acknowledge", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      chunks: [JSON.stringify({ repository: "owner/repo", runId: 1, runAttempt })]
+    });
+    assert.equal(response.status, 400);
+    assert.match(JSON.parse(response.text).error, /positive integer/);
+  }
+  const missing = await request(base, "/api/acknowledge", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    chunks: [JSON.stringify({ repository: "owner/repo", runId: 1, runAttempt: 2 })]
+  });
+  assert.equal(missing.status, 404);
+  assert.equal(JSON.parse(missing.text).ok, undefined);
+});
+
 test("an unavailable artwork asset returns an HTTP failure without terminating the monitor", async (t) => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "cismon-http-package-"));
-  t.after(() => rm(cwd, { recursive: true, force: true }));
   await cp(path.join(projectDir, "src"), path.join(cwd, "src"), { recursive: true });
   await cp(path.join(projectDir, "shared"), path.join(cwd, "shared"), { recursive: true });
   await cp(path.join(projectDir, "package.json"), path.join(cwd, "package.json"));
   const { base } = await startServer(t, cwd);
+  // After hooks run in registration order. Stop the child before removing its
+  // working directory, which Windows keeps locked while the process is alive.
+  t.after(() => rm(cwd, { recursive: true, force: true }));
   for (const resource of ["/art/hungry-frame", "/art/037-hungry-margins3.html"]) {
     assert.equal((await fetch(base + resource, { signal: AbortSignal.timeout(2000) })).status, 500);
     assert.equal((await fetch(base + "/api/state")).status, 200);
