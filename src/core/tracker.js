@@ -23,8 +23,13 @@ export class RunTracker {
     if (existing) {
       const wasTerminal = isTerminal(existing.snapshot.state);
       const nowTerminal = isTerminal(snapshot.state);
-      const attemptChanged = Number(snapshot.runAttempt || 1) !==
-        Number(existing.snapshot.runAttempt || 1);
+      const incomingAttempt = Number(snapshot.runAttempt || 1);
+      const currentAttempt = Number(existing.snapshot.runAttempt || 1);
+      // Eventually consistent summaries or an older historical request must
+      // not revive a completed attempt or roll a rerun back to its predecessor.
+      if (incomingAttempt < currentAttempt ||
+          (incomingAttempt === currentAttempt && wasTerminal && !nowTerminal)) return existing;
+      const attemptChanged = incomingAttempt !== currentAttempt;
       const merged = { ...snapshot };
       // A rerun reuses the workflow run ID but not its child job attempts.
       // Do not retain old execution evidence into the new attempt.
@@ -32,6 +37,10 @@ export class RunTracker {
         merged.jobs = snapshot.jobs || [];
         merged.jobsFetchedAtMs = 0;
         merged.jobsCoverageComplete = false;
+        existing.acknowledged = false;
+        existing.observedActive = incomingActive;
+        existing.firstSeenMs = nowMs;
+        existing.terminalSinceMs = nowTerminal ? terminalTimestampMs(snapshot, nowMs) : 0;
       }
       // Workflow-list summaries contain jobs: [] but no detail timestamp.
       // Retain separately fetched evidence across summary refreshes, including
@@ -64,7 +73,7 @@ export class RunTracker {
       existing.snapshot = merged;
       existing.lastSeenMs = nowMs;
       existing.observedActive ||= incomingActive;
-      if (!wasTerminal && nowTerminal) {
+      if ((!wasTerminal || attemptChanged) && nowTerminal) {
         existing.terminalSinceMs = terminalTimestampMs(snapshot, nowMs);
       }
       return existing;

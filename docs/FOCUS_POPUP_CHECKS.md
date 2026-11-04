@@ -27,9 +27,12 @@ Open Surface -> Focus grid -> Fixed row height, or edit the individual
 Dual/Vert pane's Fixed row height:
 
 - 0: automatic height based on content
-- 18–160: fixed pixel height
+- 1–12: fixed number of visible text lines
 - A fixed row clips text that does not fit vertically, even with Wrap enabled
 - Per-pane row height is independent of Focus Vert's outer px/vh pane height
+
+Legacy 18–160px row-height values are migrated to line counts. The pane's
+outer height is still configured in pixels or viewport-height percentage.
 
 ## PR check progress
 

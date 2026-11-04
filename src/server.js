@@ -16,24 +16,98 @@ const monitor = new Monitor(configStore, history);
 
 const HOST = process.env.CISMON_HOST || "127.0.0.1";
 const PORT = Number(process.env.CISMON_PORT || 8787);
+const MAX_JSON_BYTES = 262144;
+
+class HttpError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
+
+function hostname(value) {
+  const literal = value.includes(":") && !value.startsWith("[") ? "[" + value + "]" : value;
+  return new URL("http://" + literal).hostname.toLowerCase().replace(/\.$/, "");
+}
+
+function requestUrl(req) {
+  const authority = req.headers.host;
+  let base;
+  try {
+    if (!authority || /[\s/@\\?#]/.test(authority)) throw new Error("invalid Host");
+    base = new URL("http://" + authority);
+  } catch {
+    throw new HttpError(400, "invalid Host header");
+  }
+  // Loopback binding alone does not stop DNS rebinding: an untrusted web
+  // origin can resolve to the local listener while retaining its own Host.
+  // Explicit bind names and the socket's local address support deliberate
+  // LAN/proxy setups, without trusting arbitrary forwarded headers.
+  const trusted = new Set(["localhost", "127.0.0.1", "[::1]", hostname(HOST)]);
+  if (req.socket.localAddress) trusted.add(hostname(req.socket.localAddress));
+  if (!trusted.has(base.hostname.toLowerCase().replace(/\.$/, ""))) {
+    throw new HttpError(403, "untrusted Host header");
+  }
+  let url;
+  try { url = new URL(req.url, base); }
+  catch { throw new HttpError(400, "invalid request URL"); }
+  if (url.origin !== base.origin) throw new HttpError(400, "request URL must match Host");
+  if (url.pathname.startsWith("/api/")) {
+    const site = req.headers["sec-fetch-site"];
+    if (site && site !== "same-origin" && site !== "none") {
+      throw new HttpError(403, "cross-origin API requests are not allowed");
+    }
+    if (req.headers.origin !== undefined && req.headers.origin !== base.origin) {
+      throw new HttpError(403, "cross-origin API requests are not allowed");
+    }
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
+      const contentType = (req.headers["content-type"] || "").split(";", 1)[0].trim().toLowerCase();
+      if (contentType !== "application/json") throw new HttpError(415, "API writes require application/json");
+    }
+  }
+  return url;
+}
 
 function json(res, status, body) {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
+    ...securityHeaders(),
     "Content-Type": "application/json; charset=utf-8",
     "Content-Length": Buffer.byteLength(payload),
-    "Cache-Control": "no-store"
+    "Cache-Control": "no-store",
+    ...(status === 413 ? { Connection: "close" } : {})
   });
   res.end(payload);
 }
 
 async function readJson(req) {
-  let body = "";
-  for await (const chunk of req) {
-    body += chunk;
-    if (body.length > 262144) throw new Error("request body too large");
+  const chunks = [];
+  let bytes = 0;
+  if (Number(req.headers["content-length"]) > MAX_JSON_BYTES) {
+    req.resume();
+    throw new HttpError(413, "request body too large");
   }
-  return body ? JSON.parse(body) : {};
+  // Decode once, after collecting bounded bytes: Buffer-to-string conversion
+  // per TCP chunk corrupts a Unicode character split across two chunks.
+  for await (const chunk of req.iterator({ destroyOnReturn: false })) {
+    bytes += chunk.length;
+    if (bytes > MAX_JSON_BYTES) {
+      req.resume();
+      throw new HttpError(413, "request body too large");
+    }
+    chunks.push(chunk);
+  }
+  let value;
+  try {
+    const body = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks, bytes));
+    value = body ? JSON.parse(body) : {};
+  } catch {
+    throw new HttpError(400, "request body must contain valid UTF-8 JSON");
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new HttpError(400, "request body must be a JSON object");
+  }
+  return value;
 }
 
 function securityHeaders() {
@@ -109,11 +183,11 @@ export async function serveHungryFrame(res) {
 
 const server = http.createServer(async (req, res) => {
   try {
-    const url = new URL(req.url, "http://" + (req.headers.host || "localhost"));
+    const url = requestUrl(req);
 
-    if (req.method === "GET" && url.pathname === "/art/hungry-frame") return serveHungryFrame(res);
+    if (req.method === "GET" && url.pathname === "/art/hungry-frame") return await serveHungryFrame(res);
     if (req.method === "GET" && url.pathname === "/art/037-hungry-margins3.html") {
-      return serveFile(path.join(artDir, "037-hungry-margins3.html"), "text/plain; charset=utf-8", res);
+      return await serveFile(path.join(artDir, "037-hungry-margins3.html"), "text/plain; charset=utf-8", res);
     }
 
     if (req.method === "GET" && url.pathname === "/api/state") return json(res, 200, monitor.state());
@@ -130,6 +204,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && url.pathname === "/api/refresh") {
+      await readJson(req);
       await monitor.refresh();
       return json(res, 200, { ok: true });
     }
@@ -152,7 +227,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && await serveStatic(url.pathname, res)) return;
     json(res, 404, { error: "not found" });
   } catch (error) {
-    json(res, 500, { error: error.message });
+    if (res.headersSent || res.destroyed) return res.destroy();
+    json(res, error instanceof HttpError ? error.status : 500, { error: error.message });
   }
 });
 

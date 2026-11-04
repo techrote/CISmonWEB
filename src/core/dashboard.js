@@ -138,8 +138,12 @@ export function buildDashboard(
     }
     applyAnalysis(item, runAnalysis);
 
-    const visibleJobs = run.state === RunState.Queued &&
-      !hasFreshJobDetails(run, nowMs) ? [] : (run.jobs || []);
+    // Retained jobs can outlive their parent execution or the freshness
+    // window. They remain available in details, but no longer describe an
+    // executing stage and must not create a new stall/ETA warning.
+    const staleJobs = Object.hasOwn(run, "jobsFetchedAtMs") && !hasFreshJobDetails(run, nowMs);
+    const visibleJobs = effectiveState === RunState.Completed || staleJobs ||
+      (run.state === RunState.Queued && !hasFreshJobDetails(run, nowMs)) ? [] : (run.jobs || []);
     let currentJob = visibleJobs.find((job) => job.state === RunState.InProgress);
     if (!currentJob) currentJob = visibleJobs.find((job) => job.state === RunState.Queued);
 
@@ -147,7 +151,7 @@ export function buildDashboard(
       item.stage = currentJob.name;
       const currentStep = currentJob.steps?.find((step) => step.state === RunState.InProgress);
       if (nowEpoch > 1000000000 &&
-          effectiveState !== RunState.Queued && currentJob.state === RunState.InProgress) {
+          effectiveState === RunState.InProgress && currentJob.state === RunState.InProgress) {
         if (currentStep) {
           item.stage = currentStep.name;
           applyStageAnalysis(item,
