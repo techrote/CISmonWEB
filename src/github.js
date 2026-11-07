@@ -152,6 +152,7 @@ export function parseJob(value) {
   return {
     id: Number(value.id || 0),
     name: value.name || "job",
+    runnerId: Number(value.runner_id || 0),
     runnerName: value.runner_name || "",
     htmlUrl: value.html_url || "",
     state: parseState(value.status),
