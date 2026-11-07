@@ -125,3 +125,32 @@ columns** to stage the recommended visible-column order for that surface;
 Focus Dual and Focus Vert have a separate **Use evidence-first columns for
 this pane** button. Both affect only the selected field order; save the
 surface settings explicitly to persist the draft.
+
+## Focus operational history (7 November 2026)
+
+The default single-grid **Focus** surface now has **Focus: condense previous
+failures** enabled. This affects the **display only** when using priority
+sorting and ordinary (unfiltered) attention; it does not alter the monitor,
+GitHub statuses, acknowledgement, polling, stored history or other surfaces.
+
+- Live GitHub in-progress and queued workflows always take first priority,
+  up to the configured maximum visible rows.
+- Manually watched completed runs are retained ahead of other terminal runs.
+- Remaining terminal failure entries are limited to at most **four distinct
+  latest failing workflows** (or fewer when the row limit is very small).
+  Workflow/branch/event/PR identities are kept separate. When a newer success
+  exists in the same identity, an older failure is no longer selected for
+  the operational display.
+- Other slots are filled by the latest successful or other terminal outcome
+  for each identity. The summary reports how many failed runs remain outside
+  this Focus selection; **Alerts** and **Dense** retain their independent
+  filters and can display older attempts by increasing their item limits.
+- Disable the **Focus: condense previous failures** checkbox in Surface
+  profiles to restore the original ordered run list. Manual-watches-only,
+  stalls-only and non-normal attention views are never condensed.
+
+The **PARENT STALE** marker is now reserved for live GitHub-queued or
+in-progress workflows whose authoritative status confirmation exceeds the
+freshness threshold. Completed workflow results retain SOURCE AGE but do not
+carry a misleading live freshness warning merely because their historical
+confirmation is more than two minutes old.

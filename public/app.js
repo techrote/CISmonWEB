@@ -10,6 +10,7 @@ import {
   filterRows,
   groupRows,
   sortRows,
+  selectOperationalFocusRows,
   normalizeSurface,
   normalizeSurfaces
 } from "/surfaces.js";
@@ -435,8 +436,8 @@ function renderDashboard(state) {
   // the captured DOM node until the pointer is released.
   if (gridInteracting && ["rows", "table", "focus_dual", "focus_vert"].includes(surface.layout)) return;
   const matchedRows = filterRows(state.rows || [], surface);
-  const orderedRows = sortRows(matchedRows, surface);
-  const rows = orderedRows.slice(0, surface.maxItems);
+  const focusSelection = selectOperationalFocusRows(matchedRows, surface);
+  const rows = focusSelection.rows;
   let displayedRows = rows;
 
   elements.visibleCount.textContent =
@@ -542,7 +543,10 @@ function renderDashboard(state) {
       ? " · " + counts.queuedWithExecutingJobs + " queued with executing jobs" : "") +
     (hiddenActiveQueued
       ? " · " + hiddenActiveQueued + " queued parents with executing jobs hidden by view" : "") +
-    (counts.providerStale ? " · " + counts.providerStale + " stale parent states" : "") +
+    (counts.providerStale ? " · " + counts.providerStale + " stale live parent states" : "") +
+    (focusSelection.hiddenFailures
+      ? " · " + focusSelection.hiddenFailures +
+        " other failed runs not shown (see Alerts; increase row limit)" : "") +
     " · " + counts.suspicious + " suspicious · " +
     counts.alerts + " action required";
   elements.minimalSummary.textContent = elements.surfaceSummary.textContent;
@@ -1159,6 +1163,7 @@ function writeSurfaceForm(surface) {
   $("#surfaceShowSuccess").checked = surface.showSuccess;
   $("#surfaceShowFailures").checked = surface.showFailures;
   $("#surfaceShowOtherCompleted").checked = surface.showOtherCompleted;
+  $("#surfaceFocusCondenseHistory").checked = surface.focusCondenseHistory === true;
   $("#surfaceWatchedOnly").checked = surface.watchedOnly;
   $("#surfaceStallsOnly").checked = surface.stallsOnly;
   $("#surfaceShowTelemetry").checked = surface.showTelemetry;
@@ -1212,6 +1217,7 @@ function readSurfaceForm(existing) {
     showSuccess: $("#surfaceShowSuccess").checked,
     showFailures: $("#surfaceShowFailures").checked,
     showOtherCompleted: $("#surfaceShowOtherCompleted").checked,
+    focusCondenseHistory: $("#surfaceFocusCondenseHistory").checked,
     watchedOnly: $("#surfaceWatchedOnly").checked,
     stallsOnly: $("#surfaceStallsOnly").checked,
     fields: $$("[data-surface-field]:checked").map((input) => input.dataset.surfaceField),

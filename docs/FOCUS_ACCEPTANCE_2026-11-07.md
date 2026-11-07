@@ -53,3 +53,25 @@ the user's own read-only GitHub authentication. Never publish credentials.
 GitHub-hosted Node CI cannot prove actual Firefox window chrome, native
 fullscreen behaviour or local Windows filesystem semantics. Do not
 claim these gates have passed merely because JavaScript/VM tests are green.
+
+## 7 November physical screenshot follow-up
+
+A Firefox screenshot of Focus (20/20 repositories scanned, five live parent
+workflows and eleven observed executing children) established that the
+authoritative workflow/job split is visually coherent. It also exposed three
+misleading PARENT STALE labels on completed failures and repeated historical
+failed CI attempts crowding the 16-row live monitoring view.
+
+Re-test against the **new exact PR head** after updating the local checkout:
+
+- Completed FAILURES should no longer display PARENT STALE merely due to a
+  confirmation age of 2 minutes or more. Live stale parents still warn;
+  SOURCE AGE remains available for both.
+- Default Focus should show live runs first and no more than four distinct
+  historical failing workflow identities (unless manually watched). Its
+  summary should explicitly count other failed runs not shown. Alerts/Dense
+  must retain independent full-list behaviour.
+- Surface editor checkbox **Focus: condense previous failures** must persist
+  through Save surfaces and restart; disabling it restores the prior ordering.
+- Verify any new successful CI run on the same branch/event suppresses older
+  failures of that workflow in Focus only, without changing GitHub data.
