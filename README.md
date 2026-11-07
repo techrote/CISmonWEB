@@ -265,6 +265,26 @@ is not used for ETA or stall analysis; queued waiting remains separate.
 This conservative fallback survives summary refreshes and resets on a
 new run attempt.
 
+## Provider state versus actual runner activity
+
+**GitHub workflow state, executing matrix jobs, and occupied runners are
+separate measurements.** A queued workflow can already have child jobs
+executing, and an in-progress workflow need not currently occupy a runner.
+CISmonWEB no longer relabels GitHub's parent state to match its children.
+
+Focus displays GitHub's authoritative parent state with a separate job
+activity annotation (including incomplete or stale detail). The optional
+**JOBS R/Q** field gives fresh running/queued job counts, and **SOURCE AGE**
+shows the age of the last provider confirmation. Workflow titles include
+the run number to distinguish repeated CI runs.
+
+The summary distinguishes **GitHub in-progress**, **GitHub queued**, and
+**active workers (assigned runner slots)**. Active workers are a confirmed
+lower bound and show `+` when runner/job data is incomplete; the
+underlying job count is disclosed in the tooltip. See
+[Workflow states and runners](docs/WORKFLOW_RUNNER_STATES.md) for provenance
+and interpretation.
+
 ## Focus usability refinements and active workers
 
 Focus grid headings are centred and cell contents are vertically centred.
