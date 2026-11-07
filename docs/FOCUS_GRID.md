@@ -113,3 +113,15 @@ The parent surface controls theme, browser data refresh and chrome. Both panes s
 Existing Focus remains stored as Rows and is automatically rendered by the new grid component. Existing custom profile settings and credentials are preserved. Focus Dual is appended once for older configurations; deleting it and saving does not resurrect it on later restarts.
 
 The only normalized data additions are the existing GitHub created/updated timestamps and the successful timing-baseline sample count. Source monitoring semantics and CI processing gates are unchanged.
+
+
+## Evidence-first columns
+
+New Focus surfaces default to GitHub parent STATE, JOBS R/Q, SOURCE AGE,
+ATTN, STAGE, ELAPSED and UPDATED. MED, ETA, CONF and QTY remain optional
+diagnostic fields. Existing customized surfaces are not automatically
+overwritten. In **Surface profiles → Focus grid**, use **Use evidence-first
+columns** to stage the recommended visible-column order for that surface;
+Focus Dual and Focus Vert have a separate **Use evidence-first columns for
+this pane** button. Both affect only the selected field order; save the
+surface settings explicitly to persist the draft.

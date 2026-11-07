@@ -45,3 +45,13 @@ test("UI explains scope, non-simultaneous assignments and median overrun", async
   assert.match(grid, /PAST MED/);
   assert.match(grid, /not calibrated forecast accuracy/);
 });
+
+test("existing custom layouts offer explicit, pane-local evidence-first opt-in", async () => {
+  const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
+  const app = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
+  assert.match(html, /id="applyFocusEvidenceColumns"/);
+  assert.match(html, /id="applyPaneEvidenceColumns"/);
+  assert.match(app, /#applyFocusEvidenceColumns".*addEventListener/s);
+  assert.match(app, /#applyPaneEvidenceColumns".*addEventListener/s);
+  assert.match(app, /writeFieldEditor\("#dualGridFieldEditor", DEFAULT_FOCUS_COLUMNS\)/);
+});

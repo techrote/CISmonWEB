@@ -434,6 +434,8 @@
             </label>
           </div>
           <p class="surface-help">Click title to sort, Shift+click for the secondary sort, Ctrl+click title or divider to lock/unlock width. Drag unlocked dividers to resize, or drag headers/field chips to reorder. Date patterns use YYYY MM DD HH mm ss in local time.</p>
+          <button id="applyFocusEvidenceColumns" class="button secondary" type="button">Use evidence-first columns</button>
+          <small class="surface-help">Reorders only this surface's visible columns. Other settings remain unchanged; Save surfaces to apply.</small>
           <div id="gridFieldEditor" class="grid-field-editor" aria-label="Drag to reorder grid columns"></div>
         </section>
 
@@ -536,6 +538,7 @@
             <label class="check-field"><input id="dualPaneStalls" type="checkbox"><span>Stalls only</span></label>
           </div>
           <p class="surface-help">Drag the field chips to reorder this pane independently. Column resizing and header sorting are saved separately for each pane.</p>
+          <button id="applyPaneEvidenceColumns" class="button secondary" type="button">Use evidence-first columns for this pane</button>
           <div id="dualGridFieldEditor" class="grid-field-editor" aria-label="Drag to reorder pane columns"></div>
         </section>
 

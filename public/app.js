@@ -1,7 +1,7 @@
 import { isFunLayout } from "/fun-core.js";
 import { workflowStatusPresentation, summarizeProviderRows, uniqueWorkflowRows } from "/workflow-view.js";
 import { createFocusGrid } from "/focus-grid-view.js";
-import { GRID_FIELDS, GRID_DATE_FORMATS, GRID_DEFAULT_WIDTH,
+import { GRID_FIELDS, GRID_DATE_FORMATS, GRID_DEFAULT_WIDTH, DEFAULT_FOCUS_COLUMNS,
   normalizeGridFields, normalizePane, normalizeVertCount, normalizeVertPanes } from "/focus-grid.js";
 import { createFunView } from "/fun-surfaces.js";
 import {
@@ -928,6 +928,18 @@ function writeFieldEditor(selector, fields) {
     container.append(label);
   }
 }
+// Opt-in: existing custom Focus layouts are not silently overwritten. These
+// buttons modify the editor's visible-field draft only; normal Save persists.
+$("#applyFocusEvidenceColumns").addEventListener("click", () => {
+  writeFieldEditor("#gridFieldEditor", DEFAULT_FOCUS_COLUMNS);
+  elements.surfaceStatus.textContent =
+    "Evidence-first columns staged for this surface. Save surfaces to persist.";
+});
+$("#applyPaneEvidenceColumns").addEventListener("click", () => {
+  writeFieldEditor("#dualGridFieldEditor", DEFAULT_FOCUS_COLUMNS);
+  elements.surfaceStatus.textContent =
+    "Evidence-first columns staged for this pane. Save surfaces to persist.";
+});
 // Applying changes is a draft-only operation: target names and Vert heights
 // are retained, and normal Save surfaces persists all profiles together.
 const COPIED_FOCUS_FIELDS = [
