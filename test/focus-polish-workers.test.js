@@ -17,7 +17,7 @@ function tracked(repo, id, runState, jobs, fetchedAt = NOW) {
     }
   };
 }
-function job(id, state = RunState.InProgress, runnerName = "") {
+function job(id, state = RunState.InProgress, runnerName = "GitHub Actions " + id) {
   return { id, name:"job", state, runnerName };
 }
 
