@@ -80,7 +80,7 @@ test("In-progress workflow with no executing child is not counted as an assigned
   const title=workflowStatusPresentation(shown);
   assert.equal(shown.state,RunState.InProgress);
   assert.equal(title.label,"IN PROGRESS");
-  assert.equal(title.detail,"2 JOBS WAITING".replace("2","1"));
+  assert.equal(title.detail,"1 JOB WAITING");
   assert.match(title.title,/1 waiting/);
   const count=activeWorkerSummary([{snapshot:data}],NOW);
   assert.equal(count.activeWorkers,0);
