@@ -105,6 +105,10 @@ test("queued or completed workflows do not carry misleading active stage estimat
   const {run, now, analyzer} = scenario();
   const tracker = new RunTracker();
   run.state = RunState.Queued;
+  // Queued provider with *no* executing child has no stage execution ETA.
+  // A queued provider with a running matrix child is covered separately.
+  run.jobs[0].state = RunState.Queued;
+  run.jobs[0].steps[0].state = RunState.Queued;
   tracker.upsert(run, now * 1000);
   const [row] = buildDashboard(tracker, analyzer, now * 1000, now);
   assert.equal(row.stageEstimatedRemainingMs, 0);
