@@ -546,7 +546,7 @@ function renderDashboard(state) {
     (counts.providerStale ? " · " + counts.providerStale + " stale live parent states" : "") +
     (focusSelection.hiddenFailures
       ? " · " + focusSelection.hiddenFailures +
-        " other failed runs not shown (see Alerts; increase row limit)" : "") +
+        " other failed runs not shown in Focus (see Alerts or disable condensation)" : "") +
     " · " + counts.suspicious + " suspicious · " +
     counts.alerts + " action required";
   elements.minimalSummary.textContent = elements.surfaceSummary.textContent;
