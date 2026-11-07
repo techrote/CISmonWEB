@@ -17,6 +17,7 @@ function scenario() {
     event: "pull_request", branch: "main", createdAtEpoch: start - 200,
     runStartedAtEpoch: start, startedAtEpoch: start,
     state: RunState.InProgress, conclusion: Conclusion.Unknown,
+    jobsFetchedAtMs: now * 1000, jobsCoverageComplete: true,
     jobs: [{
       name: "native", state: RunState.InProgress,
       conclusion: Conclusion.Unknown, startedAtEpoch: start, completedAtEpoch: 0,
