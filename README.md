@@ -296,10 +296,12 @@ shows the age of the last provider confirmation. Workflow titles include
 the run number to distinguish repeated CI runs.
 
 The summary distinguishes **GitHub in-progress**, **GitHub queued**, and
-**active workers (assigned runner slots)**. Active workers are a confirmed
-lower bound and show `+` when runner/job data is incomplete; the
-underlying job count is disclosed in the tooltip. See
-[Workflow states and runners](docs/WORKFLOW_RUNNER_STATES.md) for provenance
+**assigned executing jobs recently observed**. GitHub statuses are counted
+once per unique displayed workflow (even across Focus Dual/Vert panes);
+job assignments are sampled at different times within a 120-second window,
+so they are **not an instantaneous concurrency count or guaranteed lower
+bound on current runner occupancy**. Incomplete coverage is labeled explicitly.
+See [Workflow states and runners](docs/WORKFLOW_RUNNER_STATES.md) for provenance
 and interpretation.
 
 ## Focus usability refinements and active workers
@@ -314,16 +316,20 @@ A new cell-overflow dropdown replaces the wrap checkbox, offering **wrap**,
 divider). Horizontal scrollbars are only enabled when measured column widths
 actually exceed available space, rather than flashing during every refresh.
 
-The surface summary now starts with **active workers**: the number of distinct
-freshly observed in-progress Actions jobs occupying runners, including children
-of GitHub workflows that still report `queued`. The raw GitHub workflow status
-is retained separately; Focus labels such rows **jobs active (N)**. Job lists
-are polled incrementally across all pages (100 entries/page), not truncated
-at the first 100; continued pages use bounded fair scheduling. A `+` means
-the count is a confirmed **lower bound** due to missing, partial, or stale
-job detail (120-second freshness window). Counts cover the configured
-monitored repositories, not every runner on the GitHub account. See
-[Focus grid](docs/FOCUS_GRID.md).
+The surface summary starts with recently observed assigned job slots,
+not an instantaneous measurement of runner occupancy. The authoritative
+GitHub workflow state is retained separately, with child executing/waiting
+counts shown on a distinct line. A queued parent with executing children
+remains GitHub-queued in state filtering and telemetry. If a Focus view hides
+such runs, the summary counts the omitted candidates explicitly.
+
+Job lists are polled incrementally across up to 20 pages (100 jobs/page)
+under bounded fair scheduling. Stale or incomplete snapshots are flagged,
+not silently interpreted as zero. Focus now analyzes all fresh executing
+matrix jobs for possible stalls and identifies its representative stage;
+the workflow ETA stays based on independent run-level history. Existing
+users can use the **Use evidence-first columns** button in Surface profiles
+without overwriting their custom surface settings. See [Focus grid](docs/FOCUS_GRID.md).
 
 ## Execution-only ETA and advanced Focus columns
 

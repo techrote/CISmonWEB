@@ -52,22 +52,22 @@ Dual and Vert panes can choose independent modes. The horizontal scrollbar
 is enabled only after the columns exceed the measured content width, so
 it does not flash on every refresh when all columns fit.
 
-The summary begins with **active workers**: distinct in-progress Actions job
-IDs across *all monitored* queued and running workflows. GitHub can report a
-workflow as `queued` while its matrix children are already executing. Such
-rows appear as **jobs active (N)**, are included in the running filter/count,
-and retain their original GitHub status in the row tooltip and details.
-Queue wait does not become execution time; elapsed execution uses actual job
-starts.
+The summary begins with recently observed **assigned executing jobs** from
+job-detail snapshots no older than 120 seconds, not an instantaneous runner
+count. Incomplete job/runner coverage is labeled rather than represented as
+an exact live lower bound. GitHub's parent workflow state remains authoritative
+for STATE, LIVE and filters: a parent marked queued remains queued even when
+executing matrix children are detected. The second STATE line and JOBS R/Q
+show child activity without overriding the parent. Filters/row limits that
+hide queued parents with freshly observed executing jobs are disclosed in the
+summary.
 
-The monitor retrieves queued *and* running workflow jobs, up to 100 per API
-page, incrementally across subsequent pages. Each page uses a separately
-scheduled, rate-limited request; scans are bounded, failures are retried without
-discarding evidence, and ordinary repository polling remains interleaved.
-A `+` marks a **confirmed lower bound** while any monitored live workflow
-lacks full, fresh job detail (120-second freshness window). No status or
-worker count is guessed from a stale page. These counts are not a GitHub-wide
-runner inventory: excluded/unscanned repositories are outside coverage.
+The JOBS R/Q suffix indicates a partially scanned matrix. Individual
+job-detail pages are bounded and rate-limited; missing/stale job data means
+unknown, not zero. Worker and provider aggregates cover monitored/admitted
+repositories, not GitHub account-wide runner capacity. Distinct pane
+appearances may exceed unique displayed workflows: only the latter contribute
+to GitHub state and attention counts.
 
 ## Field and column controls
 
