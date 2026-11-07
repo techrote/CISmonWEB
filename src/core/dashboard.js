@@ -1,6 +1,6 @@
 import { AttentionLevel, RunState, baselineKey, isTerminal } from "./model.js";
 import { runExecutionElapsedMs } from "./analyzer.js";
-import { hasFreshJobDetails, observedRunningJobs, observedRunState } from "../worker-summary.js";
+import { hasFreshJobDetails, jobActivitySummary, observedRunState } from "../worker-summary.js";
 
 function attentionRank(level) {
   if (level === AttentionLevel.ActionRequired) return 4;
@@ -46,7 +46,7 @@ function score(item) {
 
   // A local CI monitor must never allow historical terminal alerts to push
   // current work out of a bounded display candidate set.
-  if (item.state === RunState.InProgress) result += 10000;
+  if (item.executionState === RunState.InProgress) result += 10000;
   else if (item.state === RunState.Queued) result += 9000;
 
   if (item.manualWatch) result += 100;
@@ -68,13 +68,14 @@ export function buildDashboard(
     const run = tracked.snapshot;
     const effectiveState = observedRunState(run, nowMs);
     const analyzed = effectiveState === run.state ? run : { ...run, state: effectiveState };
-    const runningJobs = observedRunningJobs(run, nowMs);
+    const activity = jobActivitySummary(run, nowMs);
     const item = {
       repository: run.repository,
       workflow: run.workflowName,
       stage: "",
       runId: run.runId,
       runNumber: run.runNumber,
+      runAttempt: run.runAttempt || 1,
       createdAtEpoch: run.createdAtEpoch || run.startedAtEpoch || 0,
       updatedAtEpoch: run.updatedAtEpoch || 0,
       baselineSamples: 0,
@@ -92,12 +93,18 @@ export function buildDashboard(
       checkSha: run.checkSha || "",
       prNumber: run.prNumber || 0,
       htmlUrl: run.htmlUrl,
-      state: effectiveState,
+      state: run.state, // never replace GitHub's provider status
+      executionState: effectiveState, // used solely for execution time/priority
       providerState: run.state,
-      observedRunningJobs: runningJobs.length,
-      jobsCoverageComplete: hasFreshJobDetails(run, nowMs) &&
-        run.jobsCoverageComplete !== false,
+      jobActivity: activity,
+      observedRunningJobs: activity.running,
+      jobsCoverageComplete: activity.complete,
       jobsFetchedAtMs: run.jobsFetchedAtMs || 0,
+      providerConfirmedAtMs: tracked.providerConfirmedAtMs || 0,
+      providerAgeMs: tracked.providerConfirmedAtMs
+        ? Math.max(0, nowMs - tracked.providerConfirmedAtMs) : null,
+      providerDataStale: !!tracked.providerConfirmedAtMs &&
+        nowMs - tracked.providerConfirmedAtMs > 120_000,
       conclusion: run.conclusion,
       attention: AttentionLevel.Normal,
       confidence: "none",
@@ -138,8 +145,9 @@ export function buildDashboard(
     }
     applyAnalysis(item, runAnalysis);
 
-    const visibleJobs = run.state === RunState.Queued &&
-      !hasFreshJobDetails(run, nowMs) ? [] : (run.jobs || []);
+    // A cached job name must not be shown as the current stage after its
+    // job-detail snapshot has expired.
+    const visibleJobs = hasFreshJobDetails(run, nowMs) ? (run.jobs || []) : [];
     let currentJob = visibleJobs.find((job) => job.state === RunState.InProgress);
     if (!currentJob) currentJob = visibleJobs.find((job) => job.state === RunState.Queued);
 
