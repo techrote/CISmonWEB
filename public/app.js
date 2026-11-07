@@ -61,6 +61,7 @@ const elements = {
 let config = null;
 let latestState = null;
 let selectedRun = null;
+let detailRequestId = 0;
 let polling = false;
 let pollTimer = null;
 let editingSurfaces = [];
@@ -69,7 +70,11 @@ let funView = null;
 let gridInteracting = false;
 const gridScroll = new Map();
 const gridVerticalScroll = new Map();
-let gridSaveQueue = Promise.resolve();
+let configQueue = Promise.resolve();
+let surfaceRevision = 0;
+let savedSurfaceRevision = 0;
+let activeSurfaceRevision = 0;
+let savedActiveSurfaceRevision = 0;
 let editingPaneIndex = 0;
 let minimalOnly = false;
 let localSurfaceOverride = null;
@@ -106,6 +111,31 @@ async function api(path, options = {}) {
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || ("HTTP " + response.status));
   return data;
+}
+
+// Reads and writes share one queue: a delayed Configure response or surface
+// switch must not replace a newer grid edit. Revisions also retain unsaved
+// local edits after a failed write so the next grid save can recover them.
+function requestConfig(path, input) {
+  const surfacesAtRequest = surfaceRevision;
+  const activeAtRequest = activeSurfaceRevision;
+  const writesSurfaces = input && Object.hasOwn(input, "surfaces");
+  const writesActive = input && Object.hasOwn(input, "activeSurfaceId");
+  const options = input ? { method: "PUT", body: JSON.stringify(input) } : {};
+  const request = configQueue.catch(() => {}).then(async () => {
+    const next = await api(path, options);
+    if (writesSurfaces) savedSurfaceRevision = surfacesAtRequest;
+    if (writesActive) savedActiveSurfaceRevision = activeAtRequest;
+    config = {
+      ...next,
+      ...(config && surfaceRevision > savedSurfaceRevision ? { surfaces: config.surfaces } : {}),
+      ...(config && activeSurfaceRevision > savedActiveSurfaceRevision
+        ? { activeSurfaceId: config.activeSurfaceId } : {})
+    };
+    return config;
+  });
+  configQueue = request;
+  return request;
 }
 
 function activeSurface() {
@@ -192,16 +222,7 @@ function renderRunCard(row, surface) {
 
 
 function saveGridConfig() {
-  const surfaces = config.surfaces;
-  gridSaveQueue = gridSaveQueue.catch(() => {}).then(async () => {
-    const next = await api("/api/display", {
-      method: "PUT",
-      body: JSON.stringify({ surfaces, activeSurfaceId: config.activeSurfaceId })
-    });
-    // The currently shown state may have switched while the request was pending.
-    if (config.surfaces === surfaces) config = next;
-  });
-  gridSaveQueue.catch(error => {
+  requestConfig("/api/display", { surfaces: config.surfaces }).catch(error => {
     elements.errorBanner.hidden = false;
     elements.errorBanner.textContent = "Unable to persist grid settings: " + error.message;
   });
@@ -220,6 +241,7 @@ function changeGridOptions(paneIndex, changes, paneKind = "dual") {
   } else {
     next = { ...next, ...changes };
   }
+  surfaceRevision += 1;
   config = { ...config, surfaces: config.surfaces.map(p => p.id === current.id ? next : p) };
   saveGridConfig();
   if (latestState && !gridInteracting) renderDashboard(latestState);
@@ -548,14 +570,9 @@ function renderSurfaceTabs() {
 async function switchSurface(surfaceId) {
   if (!config.surfaces.some((surface) => surface.id === surfaceId)) return;
   localSurfaceOverride = surfaceId;
-  if (!minimalOnly) try {
-    config = await api("/api/display", {
-      method: "PUT",
-      body: JSON.stringify({ activeSurfaceId: surfaceId })
-    });
-  } catch (error) {
-    elements.errorBanner.hidden = false;
-    elements.errorBanner.textContent = error.message;
+  if (!minimalOnly) {
+    activeSurfaceRevision += 1;
+    config = { ...config, activeSurfaceId: surfaceId };
   }
   const url = new URL(window.location.href);
   url.searchParams.set("surface", surfaceId);
@@ -564,6 +581,12 @@ async function switchSurface(surfaceId) {
   applySurfaceVisuals();
   if (latestState) renderDashboard(latestState);
   schedulePoll();
+  if (!minimalOnly) try {
+    await requestConfig("/api/display", { activeSurfaceId: surfaceId });
+  } catch (error) {
+    elements.errorBanner.hidden = false;
+    elements.errorBanner.textContent = error.message;
+  }
 }
 
 function formatAge(ms) {
@@ -591,8 +614,8 @@ function renderSyncHealth(state) {
       formatAge(remaining) + ". " + (state.rateLimitReason || "") +
       ". Existing workflow data is cached and may be stale.";
   } else if (mode === "stale") {
-    warning = "Live workflow states are stale: the slowest active repository was last confirmed " +
-      formatAge(state.oldestLiveSummaryAgeMs) + " ago. GitHub may have newer queued/running/completed states. Polling continues.";
+    warning = "Live workflow states are stale: the oldest active workflow or repository confirmation is " +
+      formatAge(state.oldestLiveSummaryAgeMs) + " old. GitHub may have newer queued/running/completed states. Polling continues.";
   } else if (mode === "degraded") {
     warning = "GitHub API requests are degraded; some workflow stages may lag. " +
       (state.ongoingDetailFailures
@@ -708,13 +731,32 @@ function analysisGrid(analysis) {
 function actionButton(label, handler, secondary = false) {
   const button = node("button", "button" + (secondary ? " secondary" : ""), label);
   button.type = "button";
-  button.addEventListener("click", handler);
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    try {
+      await handler();
+    } catch (error) {
+      elements.errorBanner.hidden = false;
+      elements.errorBanner.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
   return button;
 }
 
 async function renderDetail(repository, runId, show = true) {
-  const detail = await api("/api/run?repository=" + encodeURIComponent(repository) + "&runId=" + encodeURIComponent(runId));
-  selectedRun = { repository, runId };
+  const selection = selectedRun;
+  if (!selection || selection.repository !== repository || selection.runId !== runId) return;
+  const requestId = ++detailRequestId;
+  let detail;
+  try {
+    detail = await api("/api/run?repository=" + encodeURIComponent(repository) + "&runId=" + encodeURIComponent(runId));
+  } catch (error) {
+    if (selectedRun !== selection || requestId !== detailRequestId) return;
+    throw error;
+  }
+  if (selectedRun !== selection || requestId !== detailRequestId) return;
   elements.detailTitle.textContent = detail.repository + " / " + detail.workflowName + " #" + detail.runNumber;
   elements.detailMeta.textContent = [
     detail.event,
@@ -740,10 +782,9 @@ async function renderDetail(repository, runId, show = true) {
     elements.detailActions.append(actionButton("Acknowledge failure", async () => {
       await api("/api/acknowledge", {
         method: "POST",
-        body: JSON.stringify({ repository, runId })
+        body: JSON.stringify({ repository, runId, runAttempt: detail.runAttempt || 1 })
       });
-      elements.detailDialog.close();
-      selectedRun = null;
+      if (selectedRun === selection) elements.detailDialog.close();
       await pollState();
     }));
   }
@@ -790,16 +831,19 @@ async function renderDetail(repository, runId, show = true) {
 }
 
 async function openDetail(repository, runId) {
+  const selection = { repository, runId };
+  selectedRun = selection;
   try {
     await renderDetail(repository, runId, true);
   } catch (error) {
+    if (selectedRun !== selection) return;
     elements.errorBanner.hidden = false;
     elements.errorBanner.textContent = error.message;
   }
 }
 
 async function openSettings() {
-  config = await api("/api/config");
+  await requestConfig("/api/config");
   $("#githubToken").value = "";
   $("#githubOwner").value = config.githubOwner || "";
   $("#maxRepositories").value = config.maxRepositories;
@@ -810,9 +854,13 @@ async function openSettings() {
   $("#includePatterns").value = (config.includePatterns || []).join("\n");
   $("#excludePatterns").value = (config.excludePatterns || []).join("\n");
   $("#clearGithubToken").checked = false;
-  $("#tokenState").textContent = config.hasGithubToken
-    ? "A token is stored locally. Leave blank to keep it."
-    : "No token stored.";
+  $("#tokenState").textContent = config.githubTokenSource === "environment"
+    ? "Using GITHUB_TOKEN from the server environment. " +
+      (config.hasStoredGithubToken ? "A separate token is also stored locally. " : "No token is stored locally. ") +
+      "Saving or clearing a stored token does not change the environment token."
+    : config.hasGithubToken
+      ? "A token is stored locally. Leave blank to keep it."
+      : "No token stored.";
   const monitorState = latestState || await api("/api/state");
   $("#watchedRepoList").textContent =
     (monitorState.watchedRepositories || []).join("\n") ||
@@ -1174,7 +1222,7 @@ function selectEditorSurface(id) {
 }
 
 async function openSurfaceSettings() {
-  config = await api("/api/config");
+  await requestConfig("/api/config");
   editingSurfaces = normalizeSurfaces(structuredClone(config.surfaces));
   updateSurfaceEditorSelect(config.activeSurfaceId);
   selectEditorSurface(config.activeSurfaceId);
@@ -1280,12 +1328,12 @@ elements.surfaceForm.addEventListener("submit", async (event) => {
     const selectedId = elements.surfaceEditorSelect.value;
     const activeStillExists = editingSurfaces.some((surface) => surface.id === config.activeSurfaceId);
     const activeSurfaceId = activeStillExists ? config.activeSurfaceId : selectedId;
-    config = await api("/api/display", {
-      method: "PUT",
-      body: JSON.stringify({
-        surfaces: editingSurfaces,
-        activeSurfaceId
-      })
+    surfaceRevision += 1;
+    activeSurfaceRevision += 1;
+    config = { ...config, surfaces: structuredClone(editingSurfaces), activeSurfaceId };
+    await requestConfig("/api/display", {
+      surfaces: config.surfaces,
+      activeSurfaceId
     });
     elements.surfaceDialog.close();
     renderSurfaceTabs();
@@ -1301,20 +1349,17 @@ elements.settingsForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   elements.settingsStatus.textContent = "Saving…";
   try {
-    config = await api("/api/config", {
-      method: "PUT",
-      body: JSON.stringify({
-        githubToken: $("#githubToken").value,
-        clearGithubToken: $("#clearGithubToken").checked,
-        githubOwner: $("#githubOwner").value,
-        maxRepositories: Number($("#maxRepositories").value),
-        repositorySelectionMode: $("#repositorySelectionMode").value,
-        activeAgeDays: Number($("#activeAgeDays").value),
-        historyDepth: Number($("#historyDepth").value),
-        backfillRunsPerRepo: Number($("#backfillRunsPerRepo").value),
-        includePatterns: $("#includePatterns").value,
-        excludePatterns: $("#excludePatterns").value
-      })
+    await requestConfig("/api/config", {
+      githubToken: $("#githubToken").value,
+      clearGithubToken: $("#clearGithubToken").checked,
+      githubOwner: $("#githubOwner").value,
+      maxRepositories: Number($("#maxRepositories").value),
+      repositorySelectionMode: $("#repositorySelectionMode").value,
+      activeAgeDays: Number($("#activeAgeDays").value),
+      historyDepth: Number($("#historyDepth").value),
+      backfillRunsPerRepo: Number($("#backfillRunsPerRepo").value),
+      includePatterns: $("#includePatterns").value,
+      excludePatterns: $("#excludePatterns").value
     });
     elements.settingsDialog.close();
     renderSurfaceTabs();
@@ -1362,8 +1407,14 @@ function setMinimalSurface(value) {
   history.replaceState(null, "", url);
   applySurfaceVisuals();
 }
+let surfaceFullscreenOwned = false;
 $("#borderlessButton").addEventListener("click", () => setMinimalSurface(true));
-$("#exitBorderlessButton").addEventListener("click", () => setMinimalSurface(false));
+$("#exitBorderlessButton").addEventListener("click", () => {
+  if (surfaceFullscreenOwned && document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+  }
+  setMinimalSurface(false);
+});
 $("#popupButton").addEventListener("click", () => {
   const url = new URL(location.href);
   url.searchParams.set("surface", activeSurface().id);
@@ -1374,21 +1425,24 @@ $("#popupButton").addEventListener("click", () => {
     "popup=yes,toolbar=no,location=no,menubar=no,status=no,resizable=yes,scrollbars=yes,width=1160,height=760");
 });
 
-// Experimental alternate popup creation: create a restricted about:blank
-// popup synchronously inside the click, then navigate its Location. Firefox
-// may still enforce a read-only URL bar; JS cannot suppress browser chrome.
-$("#popupBlankButton").addEventListener("click", () => {
-  const url = new URL(location.href);
-  url.searchParams.set("surface", activeSurface().id);
-  url.searchParams.set("minimal", "1");
-  const child = window.open("about:blank", "_blank",
-    "popup=yes,toolbar=no,location=no,menubar=no,status=no,personalbar=no,scrollbars=yes,resizable=yes,width=1160,height=760");
-  if (!child) {
+// A page cannot remove Firefox's popup address bar via window.open features.
+// User-initiated fullscreen is the supported browser-controlled alternative;
+// unlike a popup, this fills the monitor.
+$("#surfaceFullscreenButton").addEventListener("click", async () => {
+  try {
+    await document.documentElement.requestFullscreen({ navigationUI: "hide" });
+    surfaceFullscreenOwned = true;
+    setMinimalSurface(true);
+  } catch {
     elements.errorBanner.hidden = false;
-    elements.errorBanner.textContent = "Popup blocked by Firefox. Allow popups for 127.0.0.1.";
-    return;
+    elements.errorBanner.textContent = "Fullscreen unavailable. Check browser fullscreen permissions.";
   }
-  child.location.replace(url.href);
+});
+document.addEventListener("fullscreenchange", () => {
+  if (!document.fullscreenElement && surfaceFullscreenOwned) {
+    surfaceFullscreenOwned = false;
+    setMinimalSurface(false);
+  }
 });
 
 $("#fullscreenButton").addEventListener("click", async () => {
@@ -1432,16 +1486,15 @@ async function boot() {
   }
   const query = new URL(location.href).searchParams;
   minimalOnly = query.get("minimal") === "1";
-  config = await api("/api/config");
+  await requestConfig("/api/config");
   const requested = new URL(window.location.href).searchParams.get("surface");
   if (requested && config.surfaces.some((surface) => surface.id === requested)) {
     localSurfaceOverride = requested;
     // Popup windows must not hijack the main window's active surface.
     if (!minimalOnly && requested !== config.activeSurfaceId) {
-      config = await api("/api/display", {
-        method: "PUT",
-        body: JSON.stringify({ activeSurfaceId: requested })
-      });
+      activeSurfaceRevision += 1;
+      config = { ...config, activeSurfaceId: requested };
+      await requestConfig("/api/display", { activeSurfaceId: requested });
     }
   }
   renderSurfaceTabs();
