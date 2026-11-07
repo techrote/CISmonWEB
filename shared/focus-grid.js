@@ -6,7 +6,9 @@ export const GRID_FIELDS = Object.freeze([
   ["runNumber", "#", 64],
   ["attention", "ATTN", 112],
   ["stage", "STAGE", 175],
-  ["state", "STATE", 100],
+  ["state", "STATE", 130],
+  ["jobActivity", "JOBS R/Q", 98],
+  ["providerAge", "SOURCE AGE", 94],
   ["elapsed", "ELAPSED", 94],
   ["baseline", "MED", 85],
   ["ratio", "RATIO", 72],
@@ -219,6 +221,9 @@ export function gridFieldRaw(row, field) {
     case "attention": return row.attention || "normal";
     case "stage": return row.stage || "";
     case "state": return row.state === "completed" ? row.conclusion : row.state;
+    case "jobActivity": return row.jobActivity?.fresh
+      ? Number(row.jobActivity.running || 0) : -1;
+    case "providerAge": return row.providerAgeMs ?? -1;
     case "elapsed": return row.elapsedMs || 0;
     case "baseline": return row.baselineMedianMs || 0;
     case "ratio": return row.ratio || 0;
