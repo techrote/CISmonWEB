@@ -105,7 +105,9 @@ export function buildDashboard(
       providerConfirmedAtMs: tracked.providerConfirmedAtMs || 0,
       providerAgeMs: tracked.providerConfirmedAtMs
         ? Math.max(0, nowMs - tracked.providerConfirmedAtMs) : null,
-      providerDataStale: !!tracked.providerConfirmedAtMs &&
+      // Completed runs are historical records, not stale live workflows.
+      providerDataStale: run.state !== RunState.Completed &&
+        !!tracked.providerConfirmedAtMs &&
         nowMs - tracked.providerConfirmedAtMs > 120_000,
       conclusion: run.conclusion,
       attention: AttentionLevel.Normal,

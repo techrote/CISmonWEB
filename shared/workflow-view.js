@@ -19,7 +19,8 @@ export function workflowStatusPresentation(row) {
   } else if (provider === "queued" || provider === "in_progress") {
     parts.push("job detail unavailable/stale");
   }
-  if (row.providerDataStale) parts.push("parent status may be stale");
+  const providerDataStale = provider !== "completed" && !!row.providerDataStale;
+  if (providerDataStale) parts.push("parent status may be stale");
   const labels = {
     in_progress: "IN PROGRESS",
     queued: "QUEUED",
@@ -36,7 +37,7 @@ export function workflowStatusPresentation(row) {
     detail: jobDetail,
     sourceState: provider,
     fresh, complete, running, queued,
-    providerDataStale: !!row.providerDataStale,
+    providerDataStale,
     title: "GitHub workflow: " + (labels[provider] || provider) +
       (parts.length ? ". Jobs: " + parts.join("; ") : "") +
       (row.providerAgeMs !== null && row.providerAgeMs !== undefined
@@ -59,7 +60,7 @@ export function summarizeProviderRows(rows) {
     }
     if (row.jobActivity?.fresh) result.jobDetailKnown++;
     if (row.jobActivity?.complete) result.jobDetailComplete++;
-    if (row.providerDataStale) result.providerStale++;
+    if (status !== "completed" && row.providerDataStale) result.providerStale++;
   }
   return result;
 }
