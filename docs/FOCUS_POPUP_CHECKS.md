@@ -2,11 +2,16 @@
 
 ## Popup/minimal layout
 
-The Popup button uses Firefox window.open popup features. Browsers may still
-display a read-only address bar, titlebar and native controls. CISmonWEB
-cannot override Firefox's permission to display them. For a genuinely
-address-bar-free app window, use an installed web-app runtime such as
-PWAsForFirefox or browser fullscreen/kiosk mode.
+The **Popup** button requests a minimal Firefox window. Modern browsers decide
+which chrome remains; Firefox may retain a read-only address bar. Opening an
+`about:blank` window first and navigating it cannot suppress browser chrome,
+so the old **JS popup (no address)** experiment has been removed.
+
+Use **Surface fullscreen** for an address-bar-free display in Firefox:
+a click enters fullscreen and surface-only mode, filling the monitor. Escape
+restores the normal layout; **Exit surface-only** also exits the owned fullscreen
+session. For a separately resizable, address-bar-free window, use a dedicated
+installed app runtime (for example PWAsForFirefox), not `window.open` flags.
 
 In minimal=1 mode the surface-only summary is centred in a footer immediately
 beneath the surface. The footer also contains a subdued Exit surface-only
@@ -22,9 +27,12 @@ Open Surface -> Focus grid -> Fixed row height, or edit the individual
 Dual/Vert pane's Fixed row height:
 
 - 0: automatic height based on content
-- 18–160: fixed pixel height
+- 1–12: fixed number of visible text lines
 - A fixed row clips text that does not fit vertically, even with Wrap enabled
 - Per-pane row height is independent of Focus Vert's outer px/vh pane height
+
+Legacy 18–160px row-height values are migrated to line counts. The pane's
+outer height is still configured in pixels or viewport-height percentage.
 
 ## PR check progress
 

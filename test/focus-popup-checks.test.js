@@ -83,6 +83,7 @@ test("Large PR check matrices paginate without double-counting jobs or false cov
       };
     }
   };
+  monitor.tracker.upsert(run, Date.now());
   monitor.enqueueCheckTarget(run);
   assert.equal(monitor.checkSnapshots.size,1);
   const target=monitor.dueCheckTarget(Date.now());
@@ -110,6 +111,7 @@ test("Unavailable Checks permission backs off without poisoning normal monitor p
   monitor.client={
     async get(){ return {ok:false,status:403,error:"HTTP 403",rateRemaining:4200,rateResetEpoch:0}; }
   };
+  monitor.tracker.upsert(run, Date.now());
   monitor.enqueueCheckTarget(run);
   const target=monitor.dueCheckTarget(Date.now());
   assert.equal(await monitor.pollCheckTarget(target),false);

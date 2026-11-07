@@ -140,17 +140,20 @@ test("visible row height counts lines and migrates old pixel heights",()=>{
   assert.equal(normalizePane({gridHeaderOverflowMode:"hard_clip"}).gridHeaderOverflowMode,"hard_clip");
 });
 
-test("UI exposes copied-pane actions, header overflow, line count and alternate JavaScript popup",async()=>{
+test("UI exposes copied-pane actions, header overflow, line count and honest fullscreen surface",async()=>{
   const html=await readFile(new URL("../public/index.html",import.meta.url),"utf8");
   const app=await readFile(new URL("../public/app.js",import.meta.url),"utf8");
   const css=await readFile(new URL("../public/styles.css",import.meta.url),"utf8");
   for(const id of ["surfaceHeaderOverflow","dualPaneHeaderOverflow",
     "focusCopyTargets","surfaceGridRowHeight","dualPaneRowHeight",
-    "repositorySelectionMode","activeAgeDays","popupBlankButton"])
+    "repositorySelectionMode","activeAgeDays","surfaceFullscreenButton"])
     assert.match(html,new RegExp('id="'+id+'"'));
   assert.match(app,/applyFocusToPanel/);
   assert.match(app,/COPIED_FOCUS_FIELDS/);
-  assert.match(app,/window\.open\("about:blank"/);
+  assert.match(app,/requestFullscreen\(\{ navigationUI: "hide" \}\)/);
+  assert.match(app,/fullscreenchange/);
+  assert.doesNotMatch(html,/JS popup \(no address\)/);
+  assert.doesNotMatch(app,/window\.open\("about:blank"/);
   assert.match(css,/data-header-overflow="wrap"/);
   assert.match(css,/--focus-row-lines/);
 });

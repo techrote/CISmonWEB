@@ -140,7 +140,7 @@ test("Added and Updated are separate GitHub timestamps; QTY refers to baseline s
 
 test("App markup supports minimal mode, popup, draggable fields and two pane controls", async () => {
   const html = await readFile(new URL("../public/index.html",import.meta.url),"utf8");
-  for (const name of ["borderlessButton","popupButton","exitBorderlessButton",
+  for (const name of ["borderlessButton","popupButton","surfaceFullscreenButton","exitBorderlessButton",
     "gridFieldEditor","dualPaneSection","dualPaneSelect","dualGridFieldEditor"]) {
     assert.match(html,new RegExp('id="'+name+'"'));
   }
