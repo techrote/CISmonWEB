@@ -42,7 +42,14 @@ function display(row, field, options) {
       ? "WAIT " + duration(row.waitingMs || 0)
       : row.elapsedLowerBound ? "≥" + (raw > 0 ? duration(raw) : "0s")
         : duration(raw);
-    case "remaining": case "stageRemaining": case "baseline": return duration(raw);
+    case "remaining":
+      // The workflow's historical median is not a deadline. Once exceeded,
+      // do not imply an exact remaining time or silently show a blank ETA.
+      return raw > 0 ? duration(raw) :
+        row.executionState === "in_progress" && !row.elapsedLowerBound &&
+          row.baselineSamples > 0 && row.baselineMedianMs > 0 &&
+          row.elapsedMs >= row.baselineMedianMs ? "PAST MED" : "—";
+    case "stageRemaining": case "baseline": return duration(raw);
     case "ratio": return raw ? raw.toFixed(2) + "×" : "—";
     case "added": return formatGridDate(raw, options.gridAddedFormat, options.gridAddedPattern);
     case "updated": return formatGridDate(raw, options.gridUpdatedFormat, options.gridUpdatedPattern);
@@ -277,7 +284,12 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
             ? "Recently observed running / queued jobs. " +
               (row.jobActivity?.complete ? "Complete page." : "Incomplete or stale job detail.")
           : field === "providerAge"
-            ? "Age since GitHub last confirmed this workflow's parent status." : v;
+            ? "Age since GitHub last confirmed this workflow's parent status."
+          : (field === "confidence" || field === "confQty")
+            ? "Timing-history sample sufficiency: LOW 1–4, MEDIUM 5–15, HIGH 16+ samples. This is not calibrated forecast accuracy."
+          : field === "remaining" && v === "PAST MED"
+            ? "Execution exceeded the successful-history median; no reliable remaining-time estimate is available."
+          : v;
         if (field === "attention") value.className += " attention-" + row.attention;
         if (field === "state") value.className += " state-" + row.state;
         td.append(value);

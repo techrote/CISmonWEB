@@ -1,5 +1,5 @@
 import { isFunLayout } from "/fun-core.js";
-import { workflowStatusPresentation, summarizeProviderRows } from "/workflow-view.js";
+import { workflowStatusPresentation, summarizeProviderRows, uniqueWorkflowRows } from "/workflow-view.js";
 import { createFocusGrid } from "/focus-grid-view.js";
 import { GRID_FIELDS, GRID_DATE_FORMATS, GRID_DEFAULT_WIDTH,
   normalizeGridFields, normalizePane, normalizeVertCount, normalizeVertPanes } from "/focus-grid.js";
@@ -506,29 +506,39 @@ function renderDashboard(state) {
     elements.dashboard.append(renderGroups(rows, surface));
   }
 
+  // Pane appearances are not unique workflow runs. Keep the number of cells
+  // separately visible without doubling GitHub statuses or attention.
+  const uniqueRows = uniqueWorkflowRows(displayedRows);
   const counts = {
-    ...summarizeProviderRows(displayedRows),
-    alerts: displayedRows.filter(row => row.attention === "action_required").length,
-    suspicious: displayedRows.filter(row => row.attention === "suspicious").length
+    ...summarizeProviderRows(uniqueRows),
+    alerts: uniqueRows.filter(row => row.attention === "action_required").length,
+    suspicious: uniqueRows.filter(row => row.attention === "suspicious").length
   };
   const workerCount = Number(state.activeWorkers || 0);
-  const workerLabel = workerCount + (state.activeWorkersPartial ? "+" : "") +
-    " active workers (assigned runner slots)";
+  const incompleteWorkers = state.activeWorkersPartial === true;
+  const isMultiPane = surface.layout === "focus_dual" || surface.layout === "focus_vert";
+  const visibleScope = isMultiPane
+    ? displayedRows.length + " pane appearances (" + uniqueRows.length + " unique runs)"
+    : displayedRows.length + " shown" +
+      (matchedRows.length > rows.length ? " of " + matchedRows.length + " matching" : "");
   elements.surfaceSummary.title =
-    workerCount + " confirmed occupied runners based on jobs with actual runner assignments; " +
-    (state.observedRunningJobCount || 0) + " in-progress jobs seen across monitored repositories. " +
-    "Fresh complete runner/job coverage for " +
+    workerCount + " assigned, executing job IDs seen in fresh (at most 120-second-old) " +
+    "job detail across monitored repositories. These assigned runner slots were observed " +
+    "at different times: this is NOT an instantaneous concurrency measurement. " +
+    (incompleteWorkers ? "Coverage incomplete. " : "All known live-run job pages covered. ") +
+    (state.observedRunningJobCount || 0) + " total executing jobs recently reported, " +
+    (state.unassignedRunningJobCount || 0) + " without confirmed runner assignment. " +
+    "Fresh complete job coverage for " +
     (state.workerCoverageRuns || 0) + "/" + (state.workerTotalLiveRuns || 0) +
-    " live workflows; actual runner occupancy may be higher. " +
-    "GitHub parent workflow status and job activity are separate observations.";
+    " monitored live workflows. GitHub parent statuses below count unique visible runs.";
   elements.surfaceSummary.textContent =
-    workerLabel + " · " + displayedRows.length + " shown" +
-    (!["focus_dual", "focus_vert"].includes(surface.layout) &&
-      matchedRows.length > rows.length ? " of " + matchedRows.length + " matching" : "") +
+    workerCount + " assigned jobs observed ≤120s" +
+    (incompleteWorkers ? " (coverage incomplete)" : "") +
+    " · " + visibleScope +
     " · " + counts.inProgress + " GitHub in-progress · " +
-    counts.queued + " GitHub queued" +
+    counts.queued + " GitHub queued (unique shown)" +
     (counts.queuedWithExecutingJobs
-      ? " (" + counts.queuedWithExecutingJobs + " queued with executing jobs)" : "") +
+      ? " · " + counts.queuedWithExecutingJobs + " queued with executing jobs" : "") +
     (counts.providerStale ? " · " + counts.providerStale + " stale parent states" : "") +
     " · " + counts.suspicious + " suspicious · " +
     counts.alerts + " action required";

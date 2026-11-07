@@ -124,8 +124,8 @@ export function formatGridDate(epoch, mode = "short", custom = "", nowMs = Date.
 }
 
 export const DEFAULT_FOCUS_COLUMNS = Object.freeze([
-  "owner", "repository", "workflow", "attention", "stage",
-  "state", "elapsed", "remaining", "confidence", "qty", "added", "updated"
+  "owner", "repository", "workflow", "state", "jobActivity",
+  "providerAge", "attention", "stage", "elapsed", "updated"
 ]);
 
 export function normalizeGridFields(input, fallback = DEFAULT_FOCUS_COLUMNS) {

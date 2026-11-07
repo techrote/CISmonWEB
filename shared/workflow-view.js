@@ -63,3 +63,18 @@ export function summarizeProviderRows(rows) {
   }
   return result;
 }
+
+// Focus Dual/Vert panes may show the same GitHub run in several places.
+// Provider workflow counters must use distinct run identities, not pane cells.
+export function uniqueWorkflowRows(rows) {
+  const seen = new Set();
+  return rows.filter(row => {
+    const id = Number(row.runId);
+    if (!Number.isSafeInteger(id) || id <= 0) return true;
+    const key = String(row.repository || "") + "#" + id + "@" +
+      (Number(row.runAttempt) || 1);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}

@@ -255,7 +255,7 @@ test("a missing run which is still live alternates parent confirmation with pagi
     if (path.endsWith("/actions/runs/1")) return response(rawRun());
     return response({ total_count: 101, jobs: path.endsWith("page=1")
       ? Array.from({ length: 100 }, (_, i) => ({ id: 1000 + i, status: "completed", conclusion: "success" }))
-      : [{ id: 1100, status: "in_progress" }] });
+      : [{ id: 1100, status: "in_progress", runner_id: 77, runner_name: "GitHub Actions 77" }] });
   });
   const repo = repository();
   m.repositories = [repo];
