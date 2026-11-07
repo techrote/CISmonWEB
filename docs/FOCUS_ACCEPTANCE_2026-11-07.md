@@ -15,7 +15,7 @@ the user's own read-only GitHub authentication. Never publish credentials.
 - Keep original PR #18 and PR #17 as historical work; do not merge either
   on top of this combined candidate without source-authority reconciliation.
 
-## Physical Firefox / Windows acceptance — outstanding
+## Firefox / Windows acceptance checks
 
 1. On a local Windows system with Firefox, start CISmonWEB from the candidate
    checkout (`npm start`), using a token with least-privilege read scopes.
@@ -75,3 +75,41 @@ Re-test against the **new exact PR head** after updating the local checkout:
   through Save surfaces and restart; disabling it restores the prior ordering.
 - Verify any new successful CI run on the same branch/event suppresses older
   failures of that workflow in Focus only, without changing GitHub data.
+
+## Final acceptance disposition — 7 November 2026
+
+**Qualified for guarded integration** using complementary evidence:
+
+- The owner performed a live, authenticated local Firefox Focus session and
+  supplied a screenshot showing provider parent states and job counts in
+  coherent agreement (five executing workflows, eleven recently observed
+  assigned jobs), then reported the updated stale-parent/history presentation
+  looked good. This validates the observed workflow presentation; it is not
+  a reproducible claim about every GitHub API state.
+- [GitHub Actions run 42410469829](https://github.com/techrote/CISmonWEB/actions/runs/42410469829)
+  on **Windows Server 2022** ran all **188 Node tests (0 failures)** and a
+  real **headless Playwright Firefox** against the locally started CISmonWEB
+  server (no GitHub token). The browser exercised normal Focus provider/job
+  display, **Focus Dual and Vert** duplicate-run counting (seven pane
+  appearances, five unique workflow runs in each), a narrow compact-duration
+  field with browser-native word-breaks, keyboard resizing, saving surface
+  settings, native fullscreen followed by Escape restoration, and actual
+  Windows disk persistence/restart/readback.
+- The same source head also passed [pull-request CI run 42410474915](https://github.com/techrote/CISmonWEB/actions/runs/42410474915).
+  Future commits must pass exact-head CI before integration.
+- Browser acceptance fixtures are deterministic and mock only `/api/state`;
+  the real web server, editor, file persistence, Firefox DOM/layout and
+  browser fullscreen APIs are exercised. This **does not** mean a GitHub
+  token was used in the hosted test or that the hosted browser was the
+  owner's interactive Windows desktop.
+- Popup address-bar suppression remains subject to Firefox/OS policy; the
+  supported chrome-free alternative is true fullscreen. No independent
+  resizable browser window without an address bar is claimed.
+- Historical failures remain available in Alerts/Dense, and the
+  evidence-first default does not alter source GitHub states, runner
+  polling, configuration credentials, or persisted timing history.
+
+The automated Windows + Firefox checks and owner's local review satisfy the
+practical Focus integration acceptance scope. The remaining browser-environment
+difference (headless hosted versus owner-controlled desktop) is explicitly
+disclosed rather than silently claimed as equivalent.
