@@ -2,6 +2,7 @@ import {
   GRID_DEFAULT_WIDTH, GRID_LABEL, GRID_MIN_WIDTH, gridFieldRaw, formatGridDate,
   normalizeGridFields, reorderGridFields, separatorBreakSegments, sortGridRows
 } from "/focus-grid.js";
+import { workflowStatusPresentation } from "/workflow-view.js";
 
 const make = (tag, className = "", text) => {
   const n = document.createElement(tag);
@@ -32,7 +33,8 @@ function duration(ms) {
 function display(row, field, options) {
   const raw = gridFieldRaw(row, field);
   switch (field) {
-    case "elapsed": return row.state === "queued"
+    case "elapsed": return row.state === "queued" &&
+      row.executionState !== "in_progress"
       ? "WAIT " + duration(row.waitingMs || 0)
       : row.elapsedLowerBound ? "≥" + (raw > 0 ? duration(raw) : "0s")
         : duration(raw);
@@ -45,11 +47,16 @@ function display(row, field, options) {
     case "confQty": return (row.confidence || "none").toUpperCase() + "/" +
       (row.baselineSamples || 0);
     case "stage": return raw || "workflow";
+    case "workflow": return (row.workflow || "workflow") +
+      (row.runNumber ? " #" + row.runNumber +
+        (row.runAttempt > 1 ? " · attempt " + row.runAttempt : "") : "");
+    case "jobActivity": return !row.jobActivity?.fresh ? "—" :
+      row.jobActivity.running + "R/" + row.jobActivity.queued + "Q" +
+      (row.jobActivity.complete ? "" : "+");
+    case "providerAge": return row.providerAgeMs === null ||
+      row.providerAgeMs === undefined ? "—" : duration(row.providerAgeMs) || "0s";
     case "attention": return String(raw).replaceAll("_", " ");
-    case "state":
-      return row.providerState === "queued" && row.state === "in_progress"
-        ? "jobs active (" + (row.observedRunningJobs || 1) + ")"
-        : String(raw || "unknown").replaceAll("_", " ");
+    case "state": return workflowStatusPresentation(row).label;
     default: return raw === undefined || raw === null || raw === "" ? "—" : String(raw);
   }
 }
@@ -198,7 +205,10 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
     const tr = make("tr", "focus-grid-row");
     tr.dataset.attention = row.attention || "normal";
     tr.tabIndex = 0;
-    tr.title = row.repository + " / " + row.workflow + " #" + row.runNumber;
+    tr.title = row.repository + " / " + row.workflow + " #" + row.runNumber +
+      " · run ID " + row.runId +
+      (row.runAttempt > 1 ? " · attempt " + row.runAttempt : "") +
+      " · GitHub state: " + (row.providerState || row.state);
     tr.addEventListener("click", () => callbacks.onOpen?.(row.repository, row.runId));
     tr.addEventListener("keydown", ev => {
       if (!["Enter", " "].includes(ev.key)) return;
@@ -231,6 +241,22 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
           );
           td.append(counters);
         }
+      } else if (field === "state") {
+        const status = workflowStatusPresentation(row);
+        const wrapper = make("span", "focus-status-source");
+        const provider = make("span", "focus-state-provider", status.label);
+        provider.className += " state-" + row.state;
+        wrapper.append(provider);
+        if (row.state !== "completed") {
+          const activity = make("small", "focus-state-evidence", status.detail);
+          if (status.running) activity.className += " has-running-jobs";
+          wrapper.append(activity);
+        }
+        if (status.providerDataStale) {
+          wrapper.append(make("small", "focus-state-stale", "PARENT STALE"));
+        }
+        td.append(wrapper);
+        td.title = status.title;
       } else {
         const v = display(row, field, options);
         const value = make("span", "focus-grid-value", v);
@@ -241,11 +267,11 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
         value.title = field === "elapsed" && row.elapsedLowerBound
           ? "Lower bound: time since CISmonWEB first observed this workflow running. " +
             "Actual job timestamps have not been acquired; no run ETA is inferred."
-          : field === "state" && row.providerState === "queued" &&
-          row.state === "in_progress"
-          ? v + " — GitHub reports queued; running child jobs were observed" +
-            (row.jobsCoverageComplete ? "" : " (partial job coverage)")
-          : v;
+          : field === "jobActivity"
+            ? "Recently observed running / queued jobs. " +
+              (row.jobActivity?.complete ? "Complete page." : "Incomplete or stale job detail.")
+          : field === "providerAge"
+            ? "Age since GitHub last confirmed this workflow's parent status." : v;
         if (field === "attention") value.className += " attention-" + row.attention;
         if (field === "state") value.className += " state-" + row.state;
         td.append(value);

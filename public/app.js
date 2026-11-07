@@ -1,4 +1,5 @@
 import { isFunLayout } from "/fun-core.js";
+import { workflowStatusPresentation, summarizeProviderRows } from "/workflow-view.js";
 import { createFocusGrid } from "/focus-grid-view.js";
 import { GRID_FIELDS, GRID_DATE_FORMATS, GRID_DEFAULT_WIDTH,
   normalizeGridFields, normalizePane, normalizeVertCount, normalizeVertPanes } from "/focus-grid.js";
@@ -113,21 +114,21 @@ function activeSurface() {
 }
 
 function displayRunState(row) {
-  if (row.state === "completed") return row.conclusion;
-  if (row.state === "in_progress" && row.providerState === "queued") {
-    return "jobs active (" + (row.observedRunningJobs || 1) + ")";
-  }
-  return row.state;
+  const status = workflowStatusPresentation(row);
+  return status.label + (row.state === "completed" ? "" :
+    " · " + status.detail.toLowerCase());
 }
 
 function fieldMeta(row, field) {
   switch (field) {
     case "stage": return ["CURRENT STAGE", row.stage || "workflow", ""];
-    case "state": return ["STATE", displayRunState(row),
-      row.providerState !== row.state ? "GitHub: " + row.providerState : ""];
+    case "state": return ["GITHUB WORKFLOW", displayRunState(row),
+      workflowStatusPresentation(row).title];
     case "elapsed": return [
-      row.state === "queued" ? "WAITING" : "ELAPSED",
-      row.state === "queued" ? formatDuration(row.waitingMs) :
+      row.state === "queued" && row.executionState !== "in_progress"
+        ? "WAITING" : "ELAPSED",
+      row.state === "queued" && row.executionState !== "in_progress"
+        ? formatDuration(row.waitingMs) :
         row.elapsedLowerBound ? "≥" + (row.elapsedMs ? formatDuration(row.elapsedMs) : "0s") :
           formatDuration(row.elapsedMs),
       row.elapsedLowerBound ? "since first observed running (lower bound)" : ""
@@ -484,24 +485,31 @@ function renderDashboard(state) {
   }
 
   const counts = {
-    active: displayedRows.filter((row) => row.state === "in_progress").length,
-    queued: displayedRows.filter((row) => row.state === "queued").length,
-    alerts: displayedRows.filter((row) => row.attention === "action_required").length,
-    suspicious: displayedRows.filter((row) => row.attention === "suspicious").length
+    ...summarizeProviderRows(displayedRows),
+    alerts: displayedRows.filter(row => row.attention === "action_required").length,
+    suspicious: displayedRows.filter(row => row.attention === "suspicious").length
   };
   const workerCount = Number(state.activeWorkers || 0);
-  const workerLabel = workerCount + (state.activeWorkersPartial ? "+" : "") + " active workers";
-  elements.surfaceSummary.title = state.activeWorkersPartial
-    ? workerCount + " confirmed occupied runner slots; job detail received for " +
-      (state.workerCoverageRuns || 0) + "/" + (state.workerTotalLiveRuns || 0) +
-      " queued/running workflows (all available job pages). Actual count may be higher."
-    : workerCount + " confirmed in-progress Actions jobs occupying runner slots " +
-      "across queued and running workflows.";
+  const workerLabel = workerCount + (state.activeWorkersPartial ? "+" : "") +
+    " active workers (assigned runner slots)";
+  elements.surfaceSummary.title =
+    workerCount + " confirmed occupied runners based on jobs with actual runner assignments; " +
+    (state.observedRunningJobCount || 0) + " in-progress jobs seen across monitored repositories. " +
+    "Fresh complete runner/job coverage for " +
+    (state.workerCoverageRuns || 0) + "/" + (state.workerTotalLiveRuns || 0) +
+    " live workflows; actual runner occupancy may be higher. " +
+    "GitHub parent workflow status and job activity are separate observations.";
   elements.surfaceSummary.textContent =
     workerLabel + " · " + displayedRows.length + " shown" +
-    (!["focus_dual", "focus_vert"].includes(surface.layout) && matchedRows.length > rows.length ? " of " + matchedRows.length + " matching" : "") +
-    " · " + counts.active + " running · " + counts.queued +
-    " queued · " + counts.suspicious + " suspicious · " + counts.alerts + " action required";
+    (!["focus_dual", "focus_vert"].includes(surface.layout) &&
+      matchedRows.length > rows.length ? " of " + matchedRows.length + " matching" : "") +
+    " · " + counts.inProgress + " GitHub in-progress · " +
+    counts.queued + " GitHub queued" +
+    (counts.queuedWithExecutingJobs
+      ? " (" + counts.queuedWithExecutingJobs + " queued with executing jobs)" : "") +
+    (counts.providerStale ? " · " + counts.providerStale + " stale parent states" : "") +
+    " · " + counts.suspicious + " suspicious · " +
+    counts.alerts + " action required";
   elements.minimalSummary.textContent = elements.surfaceSummary.textContent;
   elements.minimalSummary.title = elements.surfaceSummary.title;
 }
@@ -619,6 +627,9 @@ async function pollState() {
     elements.trackedCount.textContent = String(state.trackedRunCount);
     elements.liveCount.textContent =
       String(state.trackedActiveCount) + "/" + String(state.trackedQueuedCount);
+    elements.liveCount.title =
+      "GitHub-reported parent workflow states: in progress / queued. " +
+      "These do not measure occupied runners; job execution is reported separately.";
     elements.rateRemaining.textContent = state.rateRemaining >= 0 ? String(state.rateRemaining) : "—";
     elements.updatedAt.textContent = new Date(state.updatedAt).toLocaleTimeString();
 

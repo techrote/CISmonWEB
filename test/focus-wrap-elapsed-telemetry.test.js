@@ -152,7 +152,8 @@ test("a queued provider with an observed running child gets the elapsed lower-bo
   // The display intentionally upgrades queued parent to in_progress from
   // actual executing child evidence; in that view elapsed counts from here.
   const displayed = row(tracker,start+140);
-  assert.equal(displayed.state,"in_progress");
+  assert.equal(displayed.state,"queued"); // GitHub provider status remains authoritative
+  assert.equal(displayed.executionState,"in_progress"); // child execution only
   assert.equal(displayed.elapsedLowerBound,true);
   assert.equal(displayed.elapsedMs,10000);
 });

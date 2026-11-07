@@ -58,6 +58,7 @@ async function serveStatic(urlPath, res) {
     "/styles.css": [path.join(publicDir, "styles.css"), "text/css; charset=utf-8"],
     "/surfaces.js": [path.join(sharedDir, "surfaces.js"), "text/javascript; charset=utf-8"],
     "/focus-grid.js": [path.join(sharedDir, "focus-grid.js"), "text/javascript; charset=utf-8"],
+    "/workflow-view.js": [path.join(sharedDir, "workflow-view.js"), "text/javascript; charset=utf-8"],
     "/focus-grid-view.js": [path.join(publicDir, "focus-grid.js"), "text/javascript; charset=utf-8"],
     "/fun-core.js": [path.join(sharedDir, "fun-core.js"), "text/javascript; charset=utf-8"],
     "/hungry-ci.js": [path.join(sharedDir, "hungry-ci.js"), "text/javascript; charset=utf-8"],
