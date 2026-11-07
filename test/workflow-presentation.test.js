@@ -157,3 +157,32 @@ test("UI labels GitHub workflow and runner observations separately", async () =>
   assert.match(monitor,/providerConfirmedAtMs/);
   assert.match(monitor,/trackedActiveCount = tracked\.filter/);
 });
+
+
+test("source-matched 46-job matrix preserves queued parent with sixteen assigned runners", () => {
+  // Representative of a real CyberSand 2026-11-07 matrix run: GitHub parent
+  // queued, while sixteen jobs had runner_id and were already executing.
+  const jobs = [
+    ...Array.from({length:23}, (_,i)=>rawJob(10+i,"completed",1000+i)),
+    ...Array.from({length:16}, (_,i)=>rawJob(100+i,"in_progress",2000+i)),
+    ...Array.from({length:7}, (_,i)=>rawJob(200+i,"queued"))
+  ];
+  const snapshot = run(RunState.Queued,jobs,{runId:500,runNumber:143});
+  const result = row(snapshot);
+  assert.equal(result.state,RunState.Queued);
+  assert.equal(result.executionState,RunState.InProgress);
+  assert.equal(result.jobActivity.total,46);
+  assert.equal(result.jobActivity.running,16);
+  assert.equal(result.jobActivity.queued,7);
+  assert.equal(result.jobActivity.completed,23);
+  assert.equal(result.jobActivity.assignedRunning,16);
+  const counts=activeWorkerSummary([{snapshot}],NOW);
+  assert.equal(counts.activeWorkers,16);
+  assert.equal(counts.observedRunningJobCount,16);
+  assert.equal(counts.providerQueuedRunCount,1);
+  assert.equal(counts.workerTotalRunningRuns,0);
+  assert.equal(counts.queuedWithRunningJobsCount,1);
+  const message=workflowStatusPresentation(result);
+  assert.equal(message.label,"QUEUED");
+  assert.equal(message.detail,"16 JOBS EXECUTING");
+});
