@@ -505,6 +505,12 @@ export class Monitor {
     const scope = "repo:" + repo.fullName;
 
     if (response.notModified) {
+      // 304 confirms the last returned summary page is unchanged. It does
+      // not confirm status for older runs absent from that page.
+      for (const runId of repo.lastSummaryRunIds || []) {
+        const tracked = this.tracker.find(repo.fullName, runId);
+        if (tracked) tracked.providerConfirmedAtMs = receivedMs;
+      }
       repo.errors = 0;
       repo.successfulPollCount += 1;
       repo.lastSuccessAtMs = receivedMs;
@@ -532,10 +538,12 @@ export class Monitor {
     let hasQueued = false;
     let newestUpdated = 0;
     let backfillQueued = 0;
+    const lastSummaryRunIds = new Set();
 
     for (const raw of response.json.workflow_runs || []) {
       const run = parseRun(raw, repo.fullName);
       if (!run.runId) continue;
+      lastSummaryRunIds.add(run.runId);
       newestUpdated = Math.max(newestUpdated, run.updatedAtEpoch);
       if (run.event === "pull_request" &&
           (run.state === RunState.InProgress || run.state === RunState.Queued)) {
@@ -550,7 +558,8 @@ export class Monitor {
         this.activeDetailNextMs.set(key, 0);
       }
       if (shouldTrackSummaryRun(run, Boolean(existing), nowMs, TERMINAL_IMPORT_LOOKBACK_MS)) {
-        this.tracker.upsert(run, nowMs);
+        const tracked = this.tracker.upsert(run, nowMs);
+        tracked.providerConfirmedAtMs = receivedMs;
       }
 
       if (run.state === RunState.InProgress || run.state === RunState.Queued) {
@@ -575,6 +584,7 @@ export class Monitor {
       }
     }
 
+    repo.lastSummaryRunIds = lastSummaryRunIds;
     if (repo.latestUpdatedEpoch !== newestUpdated) {
       repo.latestUpdatedEpoch = newestUpdated;
       repo.lastActivityMs = activityTimeFromGitHub(newestUpdated, Date.now());
@@ -866,11 +876,13 @@ export class Monitor {
       failedInitialScanCount > 0 ? "degraded" :
       oldestLiveSummaryAgeMs !== null && oldestLiveSummaryAgeMs > LIVE_FRESHNESS_WARNING_MS ? "stale" :
       (ongoingDetailFailures > 0 || freshError) ? "degraded" : "online";
+    // LIVE telemetry is GitHub's actual parent workflow state. Job evidence
+    // and confirmed runner occupancy are reported independently below.
     const trackedActiveCount = tracked.filter((run) =>
-      observedRunState(run.snapshot, nowMs) === RunState.InProgress).length;
+      run.snapshot.state === RunState.InProgress).length;
     const workers = activeWorkerSummary(tracked, nowMs);
     const trackedQueuedCount = tracked.filter((run) =>
-      observedRunState(run.snapshot, nowMs) === RunState.Queued).length;
+      run.snapshot.state === RunState.Queued).length;
     const trackedCompletedCount = tracked.filter((run) => run.snapshot.state === RunState.Completed).length;
     const rows = buildDashboard(
       this.tracker,
