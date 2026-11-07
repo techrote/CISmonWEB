@@ -1,0 +1,115 @@
+# CISmonWEB Focus evidence-first candidate — independent acceptance
+
+Candidate: branch `fix/focus-truth-visibility-20261107` (PR submitted separately).
+Source: GitHub Actions workflows/jobs; the local monitor and browser require
+the user's own read-only GitHub authentication. Never publish credentials.
+
+## Automated acceptance
+
+- Exact branch-head `npm test` and `npm run check` must both pass in
+  GitHub-hosted CI. The regression suite covers missed/old workflow run
+  reconciliation, attempt-bound job history, full and partial matrix job
+  pages, runner assignment, provider source age, duplicated pane runs,
+  first-normal/later-stalled matrix children, and stale browser responses.
+- Confirm that main has not advanced before guarded integration.
+- Keep original PR #18 and PR #17 as historical work; do not merge either
+  on top of this combined candidate without source-authority reconciliation.
+
+## Firefox / Windows acceptance checks
+
+1. On a local Windows system with Firefox, start CISmonWEB from the candidate
+   checkout (`npm start`), using a token with least-privilege read scopes.
+   Confirm that GitHub activity and watched repositories load normally.
+2. In **Focus**, apply **Use evidence-first columns**, save surfaces and
+   reload. Confirm STATE, JOBS R/Q and SOURCE AGE are visibly distinct;
+   previously configured filters, widths and other panes remain intact.
+3. In Focus Dual and Focus Vert, deliberately display the same workflow in
+   multiple panes. Confirm the summary reports appearances versus unique
+   run count and does not double-count GitHub queued/in-progress/attention.
+4. For a large Actions matrix, compare the exact run ID and attempt to
+   GitHub's workflow-run and job endpoints. A GitHub-queued parent must
+   remain QUEUED even if a child is executing; job activity may be partial
+   or stale, but never fabricated. Check that a later stalled child can
+   increase aggregate attention rather than the first child masking it.
+5. Disable queued rows in a pane containing a queued parent with executing
+   children; confirm the summary reports the hidden candidate without
+   secretly promoting GitHub's queued parent into in-progress filtering.
+6. At narrow Focus widths (down to 40px), confirm Wrap respects complete
+   duration units (e.g. 22m + 16s, never 22m1 + 6s); check tooltip
+   accessibility and no clipped status-label overlap.
+7. Verify CONF's tooltip describes sample sufficiency, not forecast
+   accuracy; when a workflow passes its learned median, ETA shows
+   PAST MED rather than fabricating a remaining time.
+8. Test Surface fullscreen and Escape restoration. Firefox may retain a
+   browser address bar in a normal popup: no webpage code can promise a
+   chrome-free independent browser window.
+9. Compare top LIVE with GitHub parent workflows; compare assigned-job
+   observations with GitHub jobs only within the displayed age/coverage
+   scope. It is not a synchronized real-time concurrency meter.
+10. On Windows, verify configuration save/backup, failed write recovery,
+    history replay and process restart. No token should be leaked to
+    the browser or into committed repo artifacts.
+
+GitHub-hosted Node CI cannot prove actual Firefox window chrome, native
+fullscreen behaviour or local Windows filesystem semantics. Do not
+claim these gates have passed merely because JavaScript/VM tests are green.
+
+## 7 November physical screenshot follow-up
+
+A Firefox screenshot of Focus (20/20 repositories scanned, five live parent
+workflows and eleven observed executing children) established that the
+authoritative workflow/job split is visually coherent. It also exposed three
+misleading PARENT STALE labels on completed failures and repeated historical
+failed CI attempts crowding the 16-row live monitoring view.
+
+Re-test against the **new exact PR head** after updating the local checkout:
+
+- Completed FAILURES should no longer display PARENT STALE merely due to a
+  confirmation age of 2 minutes or more. Live stale parents still warn;
+  SOURCE AGE remains available for both.
+- Default Focus should show live runs first and no more than four distinct
+  historical failing workflow identities (unless manually watched). Its
+  summary should explicitly count other failed runs not shown. Alerts/Dense
+  must retain independent full-list behaviour.
+- Surface editor checkbox **Focus: condense previous failures** must persist
+  through Save surfaces and restart; disabling it restores the prior ordering.
+- Verify any new successful CI run on the same branch/event suppresses older
+  failures of that workflow in Focus only, without changing GitHub data.
+
+## Final acceptance disposition — 7 November 2026
+
+**Qualified for guarded integration** using complementary evidence:
+
+- The owner performed a live, authenticated local Firefox Focus session and
+  supplied a screenshot showing provider parent states and job counts in
+  coherent agreement (five executing workflows, eleven recently observed
+  assigned jobs), then reported the updated stale-parent/history presentation
+  looked good. This validates the observed workflow presentation; it is not
+  a reproducible claim about every GitHub API state.
+- [GitHub Actions run 42410469829](https://github.com/techrote/CISmonWEB/actions/runs/42410469829)
+  on **Windows Server 2022** ran all **188 Node tests (0 failures)** and a
+  real **headless Playwright Firefox** against the locally started CISmonWEB
+  server (no GitHub token). The browser exercised normal Focus provider/job
+  display, **Focus Dual and Vert** duplicate-run counting (seven pane
+  appearances, five unique workflow runs in each), a narrow compact-duration
+  field with browser-native word-breaks, keyboard resizing, saving surface
+  settings, native fullscreen followed by Escape restoration, and actual
+  Windows disk persistence/restart/readback.
+- The same source head also passed [pull-request CI run 42410474915](https://github.com/techrote/CISmonWEB/actions/runs/42410474915).
+  Future commits must pass exact-head CI before integration.
+- Browser acceptance fixtures are deterministic and mock only `/api/state`;
+  the real web server, editor, file persistence, Firefox DOM/layout and
+  browser fullscreen APIs are exercised. This **does not** mean a GitHub
+  token was used in the hosted test or that the hosted browser was the
+  owner's interactive Windows desktop.
+- Popup address-bar suppression remains subject to Firefox/OS policy; the
+  supported chrome-free alternative is true fullscreen. No independent
+  resizable browser window without an address bar is claimed.
+- Historical failures remain available in Alerts/Dense, and the
+  evidence-first default does not alter source GitHub states, runner
+  polling, configuration credentials, or persisted timing history.
+
+The automated Windows + Firefox checks and owner's local review satisfy the
+practical Focus integration acceptance scope. The remaining browser-environment
+difference (headless hosted versus owner-controlled desktop) is explicitly
+disclosed rather than silently claimed as equivalent.

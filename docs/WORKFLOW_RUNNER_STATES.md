@@ -80,3 +80,44 @@ freshness and stable run identity, including a 46-job representative matrix
 with sixteen assigned executing runners under a GitHub-queued parent.
 Existing job activity and ETA tests now explicitly distinguish fresh
 job detail from unavailable/stale observations.
+
+
+## Evidence-first Focus presentation (2026-11-07)
+
+Focus uses workflow-provider status, recently fetched job evidence and
+source-confirmation age before historical timing diagnostics. New/default
+Focus profiles include JOBS R/Q and SOURCE AGE; existing customized profiles
+are preserved and can enable those fields manually.
+
+The assigned-job summary is **not** an instantaneous occupancy counter.
+In-progress, runner-assigned job IDs come from snapshots of different
+repositories and times (up to 120 seconds old). Jobs can finish between polls;
+the number may be higher or lower than actual concurrent occupancy now.
+Coverage-incomplete is a separate label, not a mathematical lower bound
+on real-time runner occupancy.
+
+Focus Dual / Vert report pane appearances and unique run identities
+separately. Workflow state and attention counts deduplicate by repository,
+run ID and attempt; the same workflow shown in two panes is counted once.
+Filter/truncation scope stays visible: these are *displayed* workflows, not
+the complete monitored/GitHub-wide inventory.
+
+Timing CONF ranks only historical sample sufficiency (LOW 1–4,
+MEDIUM 5–15, HIGH 16+). HIGH does not mean calibrated prediction quality.
+Once a running workflow passes its historical median and no positive run ETA
+exists, the grid reports PAST MED rather than a silently blank ETA.
+
+## Matrix-stage analysis
+
+For a fresh multi-job matrix, Focus analyzes **every executing child**, and
+both the executing job and its current executing step when available. The
+STAGE field names the highest-attention representative (with a count of
+simultaneously observed executing jobs), not the complete stage inventory.
+Any child can raise aggregate attention/possible-stall status; the job/step
+prediction remains in S-ETA while the workflow-level ETA remains untouched.
+Stale or completed job evidence cannot create current stage warnings.
+
+When Focus filters or row limits exclude a GitHub-queued parent with
+freshly observed executing child jobs, the summary explicitly identifies
+the number of such hidden candidates. It never silently relabels GitHub
+queued workflows as provider in-progress to force them through filtering.

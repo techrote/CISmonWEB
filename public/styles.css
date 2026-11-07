@@ -973,6 +973,13 @@ body.surface-hide-chrome main { padding-top: 10px; }
   text-overflow: clip;
 }
 .focus-grid-table[data-wrap="wrap"] .focus-grid-cell { padding-block: 9px; }
+/* Time units are indivisible even in narrow columns; <wbr> supplies the
+   valid unit boundaries instead of overflow-wrap:anywhere splitting digits. */
+.focus-grid-table[data-wrap="wrap"] .focus-grid-value[data-duration="true"] {
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: none;
+}
 .focus-grid-value.attention-normal { color: var(--normal); }
 .focus-grid-value.attention-interesting { color: var(--interesting); }
 .focus-grid-value.attention-suspicious { color: var(--suspicious); }

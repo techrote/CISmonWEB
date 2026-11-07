@@ -6,11 +6,13 @@ Focus, Alerts and Dense now use the same native browser data-grid component when
 
 **Surface only** hides the header, navigation tabs, summary and diagnostics, leaving only the selected display surface. A discreet **Exit surface-only** button restores the full app.
 
-**Popup** requests a browser window with no toolbar, location bar, menubar or status bar using window.open popup features. Browser preferences and operating-system decorations always take precedence: a web page cannot guarantee a truly borderless OS window.
+**Popup** opens a toolbar-minimal browser window. Modern Firefox can retain a read-only address bar even when the page requests `location=no`. No JavaScript sequence, including opening `about:blank` and then navigating, can force Firefox to hide it. The misleading experimental **JS popup (no address)** button was removed.
+
+**Surface fullscreen** is an explicitly user-initiated alternative: it enters browser fullscreen (requesting hidden navigation UI) and activates surface-only mode. The address bar is hidden, but the view **fills the monitor**, rather than remaining a small popup. Press Esc (or **Exit surface-only**) to restore the main UI. Ordinary **Fullscreen** remains available separately. For a *resizable independent window without an address bar*, use a supported installed-app runtime rather than ordinary browser JavaScript.
 
 Direct URL: http://127.0.0.1:8787/?surface=focus&minimal=1
 
-Popup selection is local to that window: opening it does not change the active profile in the main browser window. Fullscreen remains a separate option.
+Popup selection is local to that window: opening it does not change the active profile in the main browser window.
 
 ## Execution-only timing and advanced grid controls
 
@@ -33,7 +35,11 @@ Column headings are centred; all table cell text is vertically centred.
 Ctrl-click still locks widths but the lock indication is a **darker header**,
 not an additional padlock character. Minimum width is 40px. Duration
 strings and the combined CONF/QTY field are compact (e.g. `1h16m`,
-`HIGH/18`).
+`HIGH/18`). In **Wrap** mode, each time unit remains indivisible:
+`22m16s` may wrap as `22m` / `16s`, never `22m1` / `6s`.
+This applies to ELAPSED, MED, ETA and S-ETA even when the optional
+underscore/dash/dot break preference is off. Very narrow cells clip rather
+than splitting a unit; clipping modes are otherwise unchanged.
 
 The old Wrap checkbox is now a **Cell overflow** dropdown with:
 1. Clip with ellipsis — truncate with a visible ellipsis glyph.
@@ -46,22 +52,22 @@ Dual and Vert panes can choose independent modes. The horizontal scrollbar
 is enabled only after the columns exceed the measured content width, so
 it does not flash on every refresh when all columns fit.
 
-The summary begins with **active workers**: distinct in-progress Actions job
-IDs across *all monitored* queued and running workflows. GitHub can report a
-workflow as `queued` while its matrix children are already executing. Such
-rows appear as **jobs active (N)**, are included in the running filter/count,
-and retain their original GitHub status in the row tooltip and details.
-Queue wait does not become execution time; elapsed execution uses actual job
-starts.
+The summary begins with recently observed **assigned executing jobs** from
+job-detail snapshots no older than 120 seconds, not an instantaneous runner
+count. Incomplete job/runner coverage is labeled rather than represented as
+an exact live lower bound. GitHub's parent workflow state remains authoritative
+for STATE, LIVE and filters: a parent marked queued remains queued even when
+executing matrix children are detected. The second STATE line and JOBS R/Q
+show child activity without overriding the parent. Filters/row limits that
+hide queued parents with freshly observed executing jobs are disclosed in the
+summary.
 
-The monitor retrieves queued *and* running workflow jobs, up to 100 per API
-page, incrementally across subsequent pages. Each page uses a separately
-scheduled, rate-limited request; scans are bounded, failures are retried without
-discarding evidence, and ordinary repository polling remains interleaved.
-A `+` marks a **confirmed lower bound** while any monitored live workflow
-lacks full, fresh job detail (120-second freshness window). No status or
-worker count is guessed from a stale page. These counts are not a GitHub-wide
-runner inventory: excluded/unscanned repositories are outside coverage.
+The JOBS R/Q suffix indicates a partially scanned matrix. Individual
+job-detail pages are bounded and rate-limited; missing/stale job data means
+unknown, not zero. Worker and provider aggregates cover monitored/admitted
+repositories, not GitHub account-wide runner capacity. Distinct pane
+appearances may exceed unique displayed workflows: only the latter contribute
+to GitHub state and attention counts.
 
 ## Field and column controls
 
@@ -107,3 +113,44 @@ The parent surface controls theme, browser data refresh and chrome. Both panes s
 Existing Focus remains stored as Rows and is automatically rendered by the new grid component. Existing custom profile settings and credentials are preserved. Focus Dual is appended once for older configurations; deleting it and saving does not resurrect it on later restarts.
 
 The only normalized data additions are the existing GitHub created/updated timestamps and the successful timing-baseline sample count. Source monitoring semantics and CI processing gates are unchanged.
+
+
+## Evidence-first columns
+
+New Focus surfaces default to GitHub parent STATE, JOBS R/Q, SOURCE AGE,
+ATTN, STAGE, ELAPSED and UPDATED. MED, ETA, CONF and QTY remain optional
+diagnostic fields. Existing customized surfaces are not automatically
+overwritten. In **Surface profiles → Focus grid**, use **Use evidence-first
+columns** to stage the recommended visible-column order for that surface;
+Focus Dual and Focus Vert have a separate **Use evidence-first columns for
+this pane** button. Both affect only the selected field order; save the
+surface settings explicitly to persist the draft.
+
+## Focus operational history (7 November 2026)
+
+The default single-grid **Focus** surface now has **Focus: condense previous
+failures** enabled. This affects the **display only** when using priority
+sorting and ordinary (unfiltered) attention; it does not alter the monitor,
+GitHub statuses, acknowledgement, polling, stored history or other surfaces.
+
+- Live GitHub in-progress and queued workflows always take first priority,
+  up to the configured maximum visible rows.
+- Manually watched completed runs are retained ahead of other terminal runs.
+- Remaining terminal failure entries are limited to at most **four distinct
+  latest failing workflows** (or fewer when the row limit is very small).
+  Workflow/branch/event/PR identities are kept separate. When a newer success
+  exists in the same identity, an older failure is no longer selected for
+  the operational display.
+- Other slots are filled by the latest successful or other terminal outcome
+  for each identity. The summary reports how many failed runs remain outside
+  this Focus selection; **Alerts** and **Dense** retain their independent
+  filters and can display older attempts by increasing their item limits.
+- Disable the **Focus: condense previous failures** checkbox in Surface
+  profiles to restore the original ordered run list. Manual-watches-only,
+  stalls-only and non-normal attention views are never condensed.
+
+The **PARENT STALE** marker is now reserved for live GitHub-queued or
+in-progress workflows whose authoritative status confirmation exceeds the
+freshness threshold. Completed workflow results retain SOURCE AGE but do not
+carry a misleading live freshness warning merely because their historical
+confirmation is more than two minutes old.

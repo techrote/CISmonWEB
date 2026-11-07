@@ -1,6 +1,6 @@
 import {
   GRID_DEFAULT_WIDTH, GRID_LABEL, GRID_MIN_WIDTH, gridFieldRaw, formatGridDate,
-  normalizeGridFields, reorderGridFields, separatorBreakSegments, sortGridRows
+  normalizeGridFields, reorderGridFields, separatorBreakSegments, durationBreakSegments, sortGridRows
 } from "/focus-grid.js";
 import { workflowStatusPresentation } from "/workflow-view.js";
 
@@ -14,8 +14,7 @@ const make = (tag, className = "", text) => {
 
 // Inject discretionary browser-native break opportunities without modifying
 // displayed text, source values or tooltip strings. Never use innerHTML.
-function appendSeparatorBreaks(node, originalText) {
-  const parts = separatorBreakSegments(originalText);
+function appendBreakSegments(node, parts) {
   if (parts.length === 1) return;
   node.replaceChildren();
   for (let i = 0; i < parts.length; i++) {
@@ -23,6 +22,11 @@ function appendSeparatorBreaks(node, originalText) {
     if (i !== parts.length - 1) node.append(document.createElement("wbr"));
   }
 }
+function appendSeparatorBreaks(node, originalText) {
+  appendBreakSegments(node, separatorBreakSegments(originalText));
+}
+
+const DURATION_FIELDS = new Set(["elapsed", "remaining", "stageRemaining", "baseline"]);
 
 function duration(ms) {
   if (!Number.isFinite(ms) || ms <= 0) return "—";
@@ -38,7 +42,14 @@ function display(row, field, options) {
       ? "WAIT " + duration(row.waitingMs || 0)
       : row.elapsedLowerBound ? "≥" + (raw > 0 ? duration(raw) : "0s")
         : duration(raw);
-    case "remaining": case "stageRemaining": case "baseline": return duration(raw);
+    case "remaining":
+      // The workflow's historical median is not a deadline. Once exceeded,
+      // do not imply an exact remaining time or silently show a blank ETA.
+      return raw > 0 ? duration(raw) :
+        row.executionState === "in_progress" && !row.elapsedLowerBound &&
+          row.baselineSamples > 0 && row.baselineMedianMs > 0 &&
+          row.elapsedMs >= row.baselineMedianMs ? "PAST MED" : "—";
+    case "stageRemaining": case "baseline": return duration(raw);
     case "ratio": return raw ? raw.toFixed(2) + "×" : "—";
     case "added": return formatGridDate(raw, options.gridAddedFormat, options.gridAddedPattern);
     case "updated": return formatGridDate(raw, options.gridUpdatedFormat, options.gridUpdatedPattern);
@@ -260,9 +271,11 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
       } else {
         const v = display(row, field, options);
         const value = make("span", "focus-grid-value", v);
-        if (table.dataset.wrap === "wrap" &&
-            options.gridBreakAfterSeparators !== false) {
-          appendSeparatorBreaks(value, v);
+        const durationField = DURATION_FIELDS.has(field);
+        if (durationField) value.dataset.duration = "true";
+        if (table.dataset.wrap === "wrap") {
+          if (durationField) appendBreakSegments(value, durationBreakSegments(v));
+          else if (options.gridBreakAfterSeparators !== false) appendSeparatorBreaks(value, v);
         }
         value.title = field === "elapsed" && row.elapsedLowerBound
           ? "Lower bound: time since CISmonWEB first observed this workflow running. " +
@@ -270,8 +283,15 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
           : field === "jobActivity"
             ? "Recently observed running / queued jobs. " +
               (row.jobActivity?.complete ? "Complete page." : "Incomplete or stale job detail.")
+          : field === "stage" && row.stageSummary
+            ? row.stageSummary
           : field === "providerAge"
-            ? "Age since GitHub last confirmed this workflow's parent status." : v;
+            ? "Age since GitHub last confirmed this workflow's parent status."
+          : (field === "confidence" || field === "confQty")
+            ? "Timing-history sample sufficiency: LOW 1–4, MEDIUM 5–15, HIGH 16+ samples. This is not calibrated forecast accuracy."
+          : field === "remaining" && v === "PAST MED"
+            ? "Execution exceeded the successful-history median; no reliable remaining-time estimate is available."
+          : v;
         if (field === "attention") value.className += " attention-" + row.attention;
         if (field === "state") value.className += " state-" + row.state;
         td.append(value);

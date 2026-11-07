@@ -1,4 +1,5 @@
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { DEFAULT_SURFACES, normalizeSurfaces } from "../shared/surfaces.js";
@@ -31,13 +32,20 @@ export class ConfigStore {
   constructor(dataDir = process.env.CISMON_DATA_DIR || path.join(os.homedir(), ".cismonweb")) {
     this.dataDir = dataDir;
     this.configPath = path.join(dataDir, "config.json");
-    this.current = { ...DEFAULT_CONFIG, surfaces: normalizeSurfaces(DEFAULT_SURFACES) };
+    this.stored = { ...DEFAULT_CONFIG, surfaces: normalizeSurfaces(DEFAULT_SURFACES) };
+    this.environmentToken = process.env.GITHUB_TOKEN || "";
+    this.environmentOwner = process.env.CISMON_OWNER;
+    this.current = this.effectiveConfig(this.stored);
+    this.pendingUpdate = Promise.resolve();
   }
 
   async load() {
     await mkdir(this.dataDir, { recursive: true, mode: 0o700 });
     try {
       const parsed = JSON.parse(await readFile(this.configPath, "utf8"));
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("configuration must be a JSON object");
+      }
       const oldSurfaces = migrateFunPresets(parsed.surfaces, DEFAULT_SURFACES, parsed.surfacePresetVersion);
       // Migrate only once. Existing tuned profiles survive unchanged; a
       // deliberately deleted Focus Dual will not reappear on next restart.
@@ -48,7 +56,7 @@ export class ConfigStore {
       if ((parsed.focusUxVersion || 0) < 2 && !migrated.some(p => p.id === "focus-vert")) {
         migrated.push(DEFAULT_SURFACES.find(p => p.id === "focus-vert"));
       }
-      this.current = this.normalize({
+      this.stored = this.normalize({
         ...DEFAULT_CONFIG, ...parsed,
         focusUxVersion: 2,
         surfacePresetVersion: FUN_PRESET_VERSION,
@@ -58,9 +66,16 @@ export class ConfigStore {
       if (error.code !== "ENOENT") throw error;
     }
 
-    if (process.env.GITHUB_TOKEN) this.current.githubToken = process.env.GITHUB_TOKEN;
-    if (process.env.CISMON_OWNER !== undefined) this.current.githubOwner = process.env.CISMON_OWNER;
+    this.current = this.effectiveConfig(this.stored);
     return this.current;
+  }
+
+  effectiveConfig(stored) {
+    return {
+      ...stored,
+      githubToken: this.environmentToken || stored.githubToken,
+      githubOwner: this.environmentOwner !== undefined ? this.environmentOwner : stored.githubOwner
+    };
   }
 
   normalize(value) {
@@ -71,7 +86,9 @@ export class ConfigStore {
       : surfaces[0].id;
     return {
       ...DEFAULT_CONFIG,
-      ...value,
+      // Only persisted settings belong in the configuration. Derived public
+      // flags (and unrelated request fields) must not round-trip to disk.
+      ...Object.fromEntries(Object.keys(DEFAULT_CONFIG).filter((key) => Object.hasOwn(value, key)).map((key) => [key, value[key]])),
       githubToken: typeof value.githubToken === "string" ? value.githubToken.trim() : "",
       githubOwner: typeof value.githubOwner === "string" ? value.githubOwner.trim() : "",
       includePatterns: normalizePatterns(value.includePatterns),
@@ -88,17 +105,48 @@ export class ConfigStore {
 
   publicConfig() {
     const { githubToken, ...safe } = this.current;
-    return { ...safe, hasGithubToken: Boolean(githubToken) };
+    return {
+      ...safe,
+      hasGithubToken: Boolean(githubToken),
+      hasStoredGithubToken: Boolean(this.stored.githubToken),
+      githubTokenSource: this.environmentToken ? "environment" : (this.stored.githubToken ? "stored" : "none")
+    };
   }
 
   async update(input) {
-    const next = { ...this.current, ...input };
-    if (!input.githubToken) next.githubToken = input.clearGithubToken ? "" : this.current.githubToken;
-    delete next.clearGithubToken;
-    this.current = this.normalize(next);
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      throw new TypeError("configuration update must be a JSON object");
+    }
+    const patch = structuredClone(input);
+    const operation = this.pendingUpdate.then(() => this.persistUpdate(patch));
+    // A failed save leaves the accepted state intact and must not prevent a
+    // later retry. Each patch is merged only when its turn to write begins.
+    this.pendingUpdate = operation.catch(() => {});
+    return operation;
+  }
+
+  async persistUpdate(input) {
+    const next = { ...this.stored, ...input };
+    if (typeof input.githubToken !== "string" || !input.githubToken.trim()) {
+      next.githubToken = input.clearGithubToken ? "" : this.stored.githubToken;
+    }
+    const stored = this.normalize(next);
     await mkdir(this.dataDir, { recursive: true, mode: 0o700 });
-    await writeFile(this.configPath, JSON.stringify(this.current, null, 2) + "\n", { mode: 0o600 });
-    await chmod(this.configPath, 0o600).catch(() => {});
+    const temporary = this.configPath + "." + randomUUID() + ".tmp";
+    let file;
+    try {
+      file = await open(temporary, "wx", 0o600);
+      await file.writeFile(JSON.stringify(stored, null, 2) + "\n", "utf8");
+      await file.sync();
+      await file.close();
+      file = null;
+      await rename(temporary, this.configPath);
+    } finally {
+      if (file) await file.close().catch(() => {});
+      await unlink(temporary).catch(() => {});
+    }
+    this.stored = stored;
+    this.current = this.effectiveConfig(stored);
     return this.current;
   }
 }

@@ -58,6 +58,7 @@ export const DEFAULT_SURFACES = Object.freeze([
     showSuccess: true,
     showFailures: true,
     showOtherCompleted: true,
+    focusCondenseHistory: true,
     watchedOnly: false,
     stallsOnly: false,
     fields: ["stage", "state", "elapsed", "baseline", "ratio", "remaining", "branch", "confidence"],
@@ -395,6 +396,9 @@ export function normalizeSurface(input = {}, index = 0) {
     showSuccess: bool(input.showSuccess, fallback.showSuccess),
     showFailures: bool(input.showFailures, fallback.showFailures),
     showOtherCompleted: bool(input.showOtherCompleted, fallback.showOtherCompleted),
+    // Older saved Focus profiles receive the operational grouping by default.
+    // Other surfaces retain their existing full-list behaviour.
+    focusCondenseHistory: bool(input.focusCondenseHistory, input.id === "focus"),
     watchedOnly: bool(input.watchedOnly, fallback.watchedOnly),
     stallsOnly: bool(input.stallsOnly, fallback.stallsOnly),
     fields: fieldsSupplied ? fields : [...fallback.fields],
@@ -529,6 +533,83 @@ export function sortRows(rows, surface) {
     return ar - br;
   });
   return sorted;
+}
+
+// Focus is an operational surface. Keep live runs first, manually watched
+// terminals next, then a limited number of distinct latest failed workflows
+// and the latest other outcome per workflow/branch/event. Other surfaces,
+// source history, tracking and alert acknowledgement are unchanged.
+function focusHistoryKey(row) {
+  return JSON.stringify([
+    row.repository || "", row.workflow || "",
+    row.branch || "", row.event || "", row.prNumber || 0
+  ]);
+}
+function focusRecency(a, b) {
+  return (Number(b.createdAtEpoch || b.updatedAtEpoch) || 0) -
+    (Number(a.createdAtEpoch || a.updatedAtEpoch) || 0) ||
+    (Number(b.runNumber) || 0) - (Number(a.runNumber) || 0) ||
+    (Number(b.runId) || 0) - (Number(a.runId) || 0);
+}
+function isLaterFocusResult(a, b) {
+  const ar = Number(a.runNumber) || 0, br = Number(b.runNumber) || 0;
+  if (ar && br && ar !== br) return ar > br;
+  return focusRecency(a, b) < 0 ||
+    (focusRecency(a, b) === 0 && Number(a.runAttempt || 1) > Number(b.runAttempt || 1));
+}
+export function selectOperationalFocusRows(matchedRows, surface) {
+  const ordered = sortRows(matchedRows, surface);
+  const limit = Math.max(1, Math.min(512, Number(surface.maxItems) || 16));
+  const condensed = surface.focusCondenseHistory === true &&
+    (surface.layout === "rows" || surface.layout === "table") &&
+    surface.sort === "priority" && !surface.watchedOnly && !surface.stallsOnly &&
+    surface.minAttention === "normal";
+  if (!condensed) return {
+    rows: ordered.slice(0, limit), condensed: false, hiddenFailures: 0
+  };
+
+  const live = ordered.filter(row =>
+    row.state === "in_progress" || row.state === "queued");
+  const terminal = ordered.filter(row => row.state === "completed");
+  const selected = live.slice(0, limit);
+  const seen = new Set(selected.map(row =>
+    row.repository + "#" + row.runId + "@" + (row.runAttempt || 1)));
+  const append = row => {
+    if (selected.length >= limit) return false;
+    const identity = row.repository + "#" + row.runId + "@" + (row.runAttempt || 1);
+    if (seen.has(identity)) return false;
+    seen.add(identity);
+    selected.push(row);
+    return true;
+  };
+
+  // An explicitly watched historical attempt remains selectable even if a
+  // newer successful attempt exists; never silently collapse manual watches.
+  for (const row of terminal.filter(r => r.manualWatch).sort(focusRecency)) append(row);
+
+  const latestByWorkflow = new Map();
+  for (const row of terminal) {
+    const key = focusHistoryKey(row), current = latestByWorkflow.get(key);
+    if (!current || isLaterFocusResult(row, current)) latestByWorkflow.set(key, row);
+  }
+  const latest = [...latestByWorkflow.values()].sort(focusRecency);
+  const failures = latest.filter(isFailure);
+  const otherOutcomes = latest.filter(row => !isFailure(row));
+  const failureBudget = Math.max(1, Math.min(4, Math.floor(limit / 4)));
+  let shownFailures = selected.filter(row =>
+    row.state === "completed" && isFailure(row)).length;
+  for (const row of failures) {
+    if (shownFailures >= failureBudget || selected.length >= limit) break;
+    if (append(row)) shownFailures++;
+  }
+  for (const row of otherOutcomes) {
+    if (selected.length >= limit) break;
+    append(row);
+  }
+  return {
+    rows: selected, condensed: true,
+    hiddenFailures: Math.max(0, terminal.filter(isFailure).length - shownFailures)
+  };
 }
 
 export function applySurface(rows, surface) {

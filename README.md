@@ -33,8 +33,9 @@ The anomaly thresholds intentionally match the current CISmon portable core:
 
 ## Focus popup and PR check progress
 
-Focus/Focus Dual/Focus Vert now support per-surface and per-pane **Fixed row
-height** (0 = automatic, 18–160px) and centre cell content along both axes.
+Focus/Focus Dual/Focus Vert support per-surface and per-pane **Fixed row
+height** measured in visible text lines (0 = automatic, 1–12 lines), and centre
+cell content along both axes. Older pixel-height preferences migrate to lines.
 When using the minimal browser popup, the worker/activity summary is centred
 in a footer **below** the table, with an Exit surface-only control that does
 not cover cells.
@@ -62,10 +63,11 @@ mode from table contents. The Surface editor includes **Apply settings to
 another panel** buttons for individual Focus Dual and Focus Vert panes,
 without overwriting their pane names or vertical dimensions.
 
-An experimental **JS popup (no address)** option opens an about:blank popup
-with minimal-chrome flags and then navigates to CISmonWEB, allowing a direct
-comparison with the existing Popup option. Firefox can still enforce its
-address bar; no webpage can guarantee it will be hidden.
+**Popup** is browser-controlled and may retain a read-only Firefox address bar.
+The former **JS popup (no address)** experiment was removed because opening
+`about:blank` first cannot hide browser chrome. **Surface fullscreen** instead
+provides a real no-address-bar display by entering fullscreen and surface-only
+mode together; it fills the monitor, not a small independent window.
 
 ## Display surfaces
 
@@ -177,6 +179,15 @@ config.json is written with user-only file permissions where the host filesystem
 
 A timing baseline is keyed by repository, workflow ID, event, and optional job/step names. Only successful observations contribute to expected-duration baselines, matching the firmware project.
 
+Completed workflow attempts are recorded separately: a rerun can contribute
+new timing samples without being suppressed by the original run ID. New
+journal entries keep an attempt's samples and completion marker together on
+one JSON line; interrupted lines are ignored and separated from later writes.
+Existing flat sample/marker journals remain readable. Loading streams the
+journal instead of allocating the entire file as one string. A partial job
+list contributes valid individual job/step samples, but never a shortened
+whole-workflow duration.
+
 ## Repository discovery at scale
 
 CISmonWEB monitors repository summaries independently from browser refreshes. With large repository sets, discovery uses a bounded fast sweep on startup and when **Rescan** is pressed.
@@ -200,6 +211,12 @@ The browser refreshes its local dashboard independently of GitHub API calls.
 **SYNC AGE**, the age of the oldest recently confirmed active/queued repository
 (or the oldest repository when no live workflows are known).
 The sync indicator shows ONLINE / SCANNING / DEGRADED / STALE / PAUSED.
+
+If a tracked live workflow falls outside the latest 100 runs returned for its
+repository, CISmonWEB now confirms that workflow individually under the normal
+request budget. A successful recent-list poll cannot make an omitted workflow
+look freshly confirmed. Failed confirmations retain and flag the last known
+state; the app does not infer cancellation from missing list entries.
 
 If GitHub reports a transient HTTP 502 or a request stalls, the client now has
 a 12-second end-to-end request deadline. Active job-detail failures use
@@ -279,10 +296,12 @@ shows the age of the last provider confirmation. Workflow titles include
 the run number to distinguish repeated CI runs.
 
 The summary distinguishes **GitHub in-progress**, **GitHub queued**, and
-**active workers (assigned runner slots)**. Active workers are a confirmed
-lower bound and show `+` when runner/job data is incomplete; the
-underlying job count is disclosed in the tooltip. See
-[Workflow states and runners](docs/WORKFLOW_RUNNER_STATES.md) for provenance
+**assigned executing jobs recently observed**. GitHub statuses are counted
+once per unique displayed workflow (even across Focus Dual/Vert panes);
+job assignments are sampled at different times within a 120-second window,
+so they are **not an instantaneous concurrency count or guaranteed lower
+bound on current runner occupancy**. Incomplete coverage is labeled explicitly.
+See [Workflow states and runners](docs/WORKFLOW_RUNNER_STATES.md) for provenance
 and interpretation.
 
 ## Focus usability refinements and active workers
@@ -297,16 +316,20 @@ A new cell-overflow dropdown replaces the wrap checkbox, offering **wrap**,
 divider). Horizontal scrollbars are only enabled when measured column widths
 actually exceed available space, rather than flashing during every refresh.
 
-The surface summary now starts with **active workers**: the number of distinct
-freshly observed in-progress Actions jobs occupying runners, including children
-of GitHub workflows that still report `queued`. The raw GitHub workflow status
-is retained separately; Focus labels such rows **jobs active (N)**. Job lists
-are polled incrementally across all pages (100 entries/page), not truncated
-at the first 100; continued pages use bounded fair scheduling. A `+` means
-the count is a confirmed **lower bound** due to missing, partial, or stale
-job detail (120-second freshness window). Counts cover the configured
-monitored repositories, not every runner on the GitHub account. See
-[Focus grid](docs/FOCUS_GRID.md).
+The surface summary starts with recently observed assigned job slots,
+not an instantaneous measurement of runner occupancy. The authoritative
+GitHub workflow state is retained separately, with child executing/waiting
+counts shown on a distinct line. A queued parent with executing children
+remains GitHub-queued in state filtering and telemetry. If a Focus view hides
+such runs, the summary counts the omitted candidates explicitly.
+
+Job lists are polled incrementally across up to 20 pages (100 jobs/page)
+under bounded fair scheduling. Stale or incomplete snapshots are flagged,
+not silently interpreted as zero. Focus now analyzes all fresh executing
+matrix jobs for possible stalls and identifies its representative stage;
+the workflow ETA stays based on independent run-level history. Existing
+users can use the **Use evidence-first columns** button in Surface profiles
+without overwriting their custom surface settings. See [Focus grid](docs/FOCUS_GRID.md).
 
 ## Execution-only ETA and advanced Focus columns
 
@@ -352,12 +375,30 @@ The local server spaces GitHub requests rather than issuing a continuous burst.
 
 The test suite checks statistical parity, attention thresholds, tracker behavior, poll policy, glob semantics, GitHub normalization, persistent timing-journal reload, surface migration, observed-only afterimage events and local animation asset routing.
 
+The [4 November 2026 quality audit](docs/AUDIT_2026-11-04.md) records the source
+baseline, repaired defects, executable regression coverage and remaining
+acceptance limits. `npm run check` discovers JavaScript under `src`, `shared`,
+`public` and `scripts`, so new runtime modules cannot silently miss the syntax
+check.
+
 ## Current limitations
 
 - GitHub Actions is the only provider.
 - Repository discovery considers the first 100 repositories returned by /user/repos, then applies filters and the configured cap.
 - Workflow polling currently reads up to 100 recent runs per repository.
-- Job detail reads the first 100 jobs of the latest attempt.
-- The timing journal is append-only; bounded in-memory retention is implemented, but on-disk compaction is not yet.
+- Live job-detail scans read up to 20 pages of 100 jobs. Historical backfill
+  currently reads one page; incomplete matrices do not train whole-workflow ETA.
+- The timing journal is append-only and streamed on load. Samples are bounded
+  per timing key, but the number of keys and completed-attempt markers, and
+  the file on disk, are not globally capped or compacted.
 - Configuration has no authentication because the server is intended to bind to loopback. Do not expose it to an untrusted network without adding an authentication boundary.
 - This is a local monitor, not a webhook receiver; fresh state is bounded by its adaptive poll interval.
+- Watch/acknowledgement and retained failure state belong to the current
+  monitor session; they are not restored after a server restart or provider
+  configuration reset.
+- Simultaneous full surface edits in separate browser windows use
+  last-writer-wins. The configuration queue prevents races within one page,
+  not cross-window editing conflicts.
+- Copy the data directory before downgrading: old versions do not read timing
+  samples nested in the new per-attempt journal entries. Run one server per
+  data directory; cross-process writer coordination is not implemented.

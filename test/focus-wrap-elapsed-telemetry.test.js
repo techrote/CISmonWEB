@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { separatorBreakSegments } from "../shared/focus-grid.js";
+import { separatorBreakSegments, durationBreakSegments } from "../shared/focus-grid.js";
 import { normalizeSurface } from "../shared/surfaces.js";
 import { RunTracker } from "../src/core/tracker.js";
 import {
@@ -34,6 +34,23 @@ test("underscore/dash/dot offer discretionary breaks immediately AFTER separator
   assert.deepEqual(separatorBreakSegments("trailing_"), ["trailing_"]);
   assert.deepEqual(separatorBreakSegments("a__b"), ["a_", "_", "b"]);
   assert.equal(separatorBreakSegments("pull_request").join(""), "pull_request");
+});
+
+test("compact durations break between whole time units, never between digits", () => {
+  for (const [text, parts] of [
+    ["22m16s", ["22m", "16s"]],
+    ["23m24s", ["23m", "24s"]],
+    ["1h16m", ["1h", "16m"]],
+    ["2d3h4m5s", ["2d", "3h", "4m", "5s"]],
+    ["WAIT 22m16s", ["WAIT 22m", "16s"]],
+    ["≥22m16s", ["≥22m", "16s"]],
+    ["0s", ["0s"]],
+    ["—", ["—"]],
+    ["17ms", ["17ms"]]
+  ]) {
+    assert.deepEqual(durationBreakSegments(text), parts, text);
+    assert.equal(durationBreakSegments(text).join(""), text);
+  }
 });
 
 test("separator-break toggle defaults on and round-trips for surfaces and panes", () => {
@@ -170,6 +187,16 @@ test("separator breaks are DOM wbr nodes only when wrapping; no text modificatio
   assert.match(html, /id="surfaceGridBreakAfterSeparators"/);
   assert.match(html, /id="dualPaneBreakAfterSeparators"/);
   assert.match(app, /gridBreakAfterSeparators/);
+});
+
+test("all Focus duration fields have unit boundaries even with separator breaks off", async () => {
+  const grid = await readFile(new URL("../public/focus-grid.js", import.meta.url), "utf8");
+  const css = await readFile(new URL("../public/styles.css", import.meta.url), "utf8");
+  assert.match(grid, /DURATION_FIELDS = new Set\(\["elapsed", "remaining", "stageRemaining", "baseline"\]\)/);
+  assert.match(grid, /if \(durationField\) appendBreakSegments\(value, durationBreakSegments\(v\)\)/);
+  assert.match(grid, /else if \(options\.gridBreakAfterSeparators !== false\)/);
+  assert.match(grid, /value\.dataset\.duration = "true"/);
+  assert.match(css, /\.focus-grid-value\[data-duration="true"\] \{[^}]*overflow-wrap: normal;[^}]*word-break: normal;/s);
 });
 
 test("telemetry labels and values are centred inside every cell", async () => {

@@ -51,6 +51,23 @@ export function separatorBreakSegments(value) {
   segments.push(input.slice(start));
   return segments;
 }
+// Break only between complete compact time units: 22m16s => 22m | 16s.
+// Ordinary grid separator wrapping remains an independent preference.
+// Preserve the literal source for textContent, tooltips, sorting and copying.
+export function durationBreakSegments(value) {
+  const input = String(value ?? "");
+  const segments = [];
+  let start = 0;
+  const digit = c => c >= "0" && c <= "9";
+  for (let i = 2; i < input.length; i++) {
+    if ("dhms".includes(input[i - 1]) && digit(input[i - 2]) && digit(input[i])) {
+      segments.push(input.slice(start, i));
+      start = i;
+    }
+  }
+  segments.push(input.slice(start));
+  return segments;
+}
 export const GRID_LABEL = Object.freeze(Object.fromEntries(GRID_FIELDS.map(([id, label]) => [id, label])));
 export const GRID_DEFAULT_WIDTH = Object.freeze(Object.fromEntries(GRID_FIELDS.map(([id, , width]) => [id, width])));
 export const GRID_DATE_FORMATS = Object.freeze([
@@ -107,8 +124,8 @@ export function formatGridDate(epoch, mode = "short", custom = "", nowMs = Date.
 }
 
 export const DEFAULT_FOCUS_COLUMNS = Object.freeze([
-  "owner", "repository", "workflow", "attention", "stage",
-  "state", "elapsed", "remaining", "confidence", "qty", "added", "updated"
+  "owner", "repository", "workflow", "state", "jobActivity",
+  "providerAge", "attention", "stage", "elapsed", "updated"
 ]);
 
 export function normalizeGridFields(input, fallback = DEFAULT_FOCUS_COLUMNS) {
