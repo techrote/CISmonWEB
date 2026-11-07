@@ -27,7 +27,7 @@ export function workflowStatusPresentation(row) {
   };
   const jobDetail = provider === "completed" ? "" :
     running ? running + " JOB" + (running === 1 ? "" : "S") + " EXECUTING" :
-    fresh && queued ? queued + " JOBS WAITING" :
+    fresh && queued ? queued + " JOB" + (queued === 1 ? "" : "S") + " WAITING" :
     fresh && completed ? "JOBS FINISHED" :
     fresh ? "NO JOB RUNNING" : "JOBS UNKNOWN";
 
