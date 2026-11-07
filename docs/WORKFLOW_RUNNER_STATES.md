@@ -116,3 +116,8 @@ simultaneously observed executing jobs), not the complete stage inventory.
 Any child can raise aggregate attention/possible-stall status; the job/step
 prediction remains in S-ETA while the workflow-level ETA remains untouched.
 Stale or completed job evidence cannot create current stage warnings.
+
+When Focus filters or row limits exclude a GitHub-queued parent with
+freshly observed executing child jobs, the summary explicitly identifies
+the number of such hidden candidates. It never silently relabels GitHub
+queued workflows as provider in-progress to force them through filtering.

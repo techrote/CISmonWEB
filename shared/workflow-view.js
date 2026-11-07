@@ -66,15 +66,30 @@ export function summarizeProviderRows(rows) {
 
 // Focus Dual/Vert panes may show the same GitHub run in several places.
 // Provider workflow counters must use distinct run identities, not pane cells.
+function workflowRunKey(row) {
+  const id = Number(row?.runId);
+  return Number.isSafeInteger(id) && id > 0
+    ? String(row.repository || "") + "#" + id + "@" + (Number(row.runAttempt) || 1)
+    : null;
+}
 export function uniqueWorkflowRows(rows) {
   const seen = new Set();
   return rows.filter(row => {
-    const id = Number(row.runId);
-    if (!Number.isSafeInteger(id) || id <= 0) return true;
-    const key = String(row.repository || "") + "#" + id + "@" +
-      (Number(row.runAttempt) || 1);
+    const key = workflowRunKey(row);
+    if (!key) return true;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
+}
+
+// Preserve GitHub-provider queue filtering while showing when it omits
+// a queued parent that currently has observed executing child jobs.
+export function hiddenQueuedExecutingRows(candidates, displayed) {
+  const shown = new Set(displayed.map(workflowRunKey).filter(Boolean));
+  return uniqueWorkflowRows(candidates).filter(row =>
+    (row.providerState || row.state) === "queued" &&
+    row.jobActivity?.fresh === true && Number(row.jobActivity.running) > 0 &&
+    !!workflowRunKey(row) && !shown.has(workflowRunKey(row))
+  ).length;
 }

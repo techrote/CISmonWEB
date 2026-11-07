@@ -1,5 +1,5 @@
 import { isFunLayout } from "/fun-core.js";
-import { workflowStatusPresentation, summarizeProviderRows, uniqueWorkflowRows } from "/workflow-view.js";
+import { workflowStatusPresentation, summarizeProviderRows, uniqueWorkflowRows, hiddenQueuedExecutingRows } from "/workflow-view.js";
 import { createFocusGrid } from "/focus-grid-view.js";
 import { GRID_FIELDS, GRID_DATE_FORMATS, GRID_DEFAULT_WIDTH, DEFAULT_FOCUS_COLUMNS,
   normalizeGridFields, normalizePane, normalizeVertCount, normalizeVertPanes } from "/focus-grid.js";
@@ -509,6 +509,7 @@ function renderDashboard(state) {
   // Pane appearances are not unique workflow runs. Keep the number of cells
   // separately visible without doubling GitHub statuses or attention.
   const uniqueRows = uniqueWorkflowRows(displayedRows);
+  const hiddenActiveQueued = hiddenQueuedExecutingRows(state.rows || [], uniqueRows);
   const counts = {
     ...summarizeProviderRows(uniqueRows),
     alerts: uniqueRows.filter(row => row.attention === "action_required").length,
@@ -539,6 +540,8 @@ function renderDashboard(state) {
     counts.queued + " GitHub queued (unique shown)" +
     (counts.queuedWithExecutingJobs
       ? " · " + counts.queuedWithExecutingJobs + " queued with executing jobs" : "") +
+    (hiddenActiveQueued
+      ? " · " + hiddenActiveQueued + " queued parents with executing jobs hidden by view" : "") +
     (counts.providerStale ? " · " + counts.providerStale + " stale parent states" : "") +
     " · " + counts.suspicious + " suspicious · " +
     counts.alerts + " action required";

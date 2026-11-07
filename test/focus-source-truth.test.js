@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
-import { summarizeProviderRows, uniqueWorkflowRows } from "../shared/workflow-view.js";
+import { summarizeProviderRows, uniqueWorkflowRows, hiddenQueuedExecutingRows } from "../shared/workflow-view.js";
 import { DEFAULT_FOCUS_COLUMNS } from "../shared/focus-grid.js";
 
 const run = (runId, state, attention = "normal", attempt = 1) => ({
@@ -54,4 +54,13 @@ test("existing custom layouts offer explicit, pane-local evidence-first opt-in",
   assert.match(app, /#applyFocusEvidenceColumns".*addEventListener/s);
   assert.match(app, /#applyPaneEvidenceColumns".*addEventListener/s);
   assert.match(app, /writeFieldEditor\("#dualGridFieldEditor", DEFAULT_FOCUS_COLUMNS\)/);
+});
+
+test("queued parent with executing children hidden by filters/row cap is disclosed", () => {
+  const queued = run(1, "queued", "normal");
+  const visible = run(2, "in_progress", "normal");
+  assert.equal(hiddenQueuedExecutingRows([queued, visible], [visible]), 1);
+  assert.equal(hiddenQueuedExecutingRows([queued, visible], [queued, visible]), 0);
+  assert.equal(hiddenQueuedExecutingRows([queued, queued, visible], [visible]), 1);
+  assert.equal(hiddenQueuedExecutingRows([{...queued, jobActivity:{fresh:false,running:3}}], []), 0);
 });
