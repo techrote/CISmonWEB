@@ -283,6 +283,8 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
           : field === "jobActivity"
             ? "Recently observed running / queued jobs. " +
               (row.jobActivity?.complete ? "Complete page." : "Incomplete or stale job detail.")
+          : field === "stage" && row.stageSummary
+            ? row.stageSummary
           : field === "providerAge"
             ? "Age since GitHub last confirmed this workflow's parent status."
           : (field === "confidence" || field === "confQty")

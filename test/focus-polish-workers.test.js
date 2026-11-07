@@ -131,7 +131,7 @@ test("header alignment, no padlock glyph, compact times, hard clip, and scrollba
   assert.match(css,/vertical-align:\s*middle/);
   assert.match(css,/\.focus-grid-table\[data-wrap="hard_clip"\]/);
   assert.match(css,/text-overflow:\s*clip/);
-  assert.match(app,/active workers/);
+  assert.match(app,/assigned jobs observed/);
   assert.match(app,/activeWorkersPartial/);
 });
 

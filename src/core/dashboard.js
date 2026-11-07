@@ -80,6 +80,8 @@ export function buildDashboard(
       updatedAtEpoch: run.updatedAtEpoch || 0,
       baselineSamples: 0,
       stageKind: "",
+      activeJobCount: 0,
+      stageSummary: "",
       stageElapsedMs: 0,
       stageAttention: AttentionLevel.Normal,
       stagePossiblyStalled: false,
@@ -145,26 +147,72 @@ export function buildDashboard(
     }
     applyAnalysis(item, runAnalysis);
 
-    // A cached job name must not be shown as the current stage after its
-    // job-detail snapshot has expired.
-    const visibleJobs = effectiveState !== RunState.Completed && hasFreshJobDetails(run, nowMs) ? (run.jobs || []) : [];
-    let currentJob = visibleJobs.find((job) => job.state === RunState.InProgress);
-    if (!currentJob) currentJob = visibleJobs.find((job) => job.state === RunState.Queued);
-
-    if (currentJob) {
-      item.stage = currentJob.name;
-      const currentStep = currentJob.steps?.find((step) => step.state === RunState.InProgress);
-      if (nowEpoch > 1000000000 &&
-          effectiveState === RunState.InProgress && currentJob.state === RunState.InProgress) {
-        if (currentStep) {
-          item.stage = currentStep.name;
-          applyStageAnalysis(item,
-            analyzer.analyzeStep(run, currentJob, currentStep, nowEpoch), "step");
-        } else {
-          applyStageAnalysis(item,
-            analyzer.analyzeJob(run, currentJob, nowEpoch), "job");
+    // Analyze every fresh executing matrix child. The first child is not
+    // necessarily the slowest or most suspicious; preserve the run's own
+    // MED/ETA/CONF/QTY while propagating *any* stage stall into attention.
+    const visibleJobs = effectiveState !== RunState.Completed &&
+      hasFreshJobDetails(run, nowMs) ? (run.jobs || []) : [];
+    const activeJobs = visibleJobs.filter(job => job.state === RunState.InProgress);
+    const waitingJobs = visibleJobs.filter(job => job.state === RunState.Queued);
+    item.activeJobCount = activeJobs.length;
+    if (activeJobs.length) {
+      const assessed = [];
+      for (const job of activeJobs) {
+        const step = job.steps?.find(s => s.state === RunState.InProgress);
+        if (nowEpoch <= 1000000000 || effectiveState !== RunState.InProgress) {
+          assessed.push({ job, step, analysis: null,
+            label: step?.name || job.name, kind: step ? "step" : "job",
+            jobElapsedMs: 0 });
+          continue;
         }
+        const jobAnalysis = analyzer.analyzeJob(run, job, nowEpoch);
+        const stepAnalysis = step ? analyzer.analyzeStep(run, job, step, nowEpoch) : null;
+        // A job can be stuck even if its current step looks ordinary. Check
+        // both scopes and take the more severe result; prefer a named step
+        // when severities tie.
+        for (const analysis of [jobAnalysis, stepAnalysis]) {
+          if (!analysis) continue;
+          if (attentionRank(analysis.attention) > attentionRank(item.attention)) {
+            item.attention = analysis.attention;
+          }
+          item.possiblyStalled ||= !!analysis.possiblyStalled;
+        }
+        const stepIsRepresentative = stepAnalysis &&
+          (attentionRank(stepAnalysis.attention) > attentionRank(jobAnalysis.attention) ||
+          (attentionRank(stepAnalysis.attention) === attentionRank(jobAnalysis.attention) &&
+            (!!stepAnalysis.possiblyStalled || !jobAnalysis.possiblyStalled)));
+        assessed.push({
+          job, step, kind: stepIsRepresentative ? "step" : "job",
+          label: stepIsRepresentative ? step.name : job.name,
+          analysis: stepIsRepresentative ? stepAnalysis : jobAnalysis,
+          jobElapsedMs: jobAnalysis.elapsedMs || 0
+        });
       }
+      // Deterministic worst-child selection: severity, possible stall,
+      // running duration, then stable job identity. All children still
+      // contribute to aggregate attention.
+      assessed.sort((x, y) =>
+        attentionRank(y.analysis?.attention) - attentionRank(x.analysis?.attention) ||
+        Number(!!y.analysis?.possiblyStalled) - Number(!!x.analysis?.possiblyStalled) ||
+        y.jobElapsedMs - x.jobElapsedMs ||
+        String(x.job.id || x.job.name).localeCompare(String(y.job.id || y.job.name))
+      );
+      const representative = assessed[0];
+      if (representative.analysis) {
+        applyStageAnalysis(item, representative.analysis, representative.kind);
+      }
+      const prefix = activeJobs.length > 1
+        ? activeJobs.length + (activity.complete ? "" : "+") + " JOBS EXECUTING · " : "";
+      item.stage = prefix + representative.label;
+      item.stageSummary = activeJobs.length + " executing child jobs" +
+        (activity.complete ? "" : " (partial job coverage)") +
+        ". Representative highest-attention stage: " + representative.job.name +
+        (representative.step && representative.kind === "step"
+          ? " / " + representative.step.name : "") +
+        ". All available executing jobs were independently analyzed for stalls.";
+    } else if (waitingJobs.length) {
+      item.stage = waitingJobs.length === 1 ? waitingJobs[0].name :
+        waitingJobs.length + (activity.complete ? "" : "+") + " JOBS WAITING";
     }
 
     result.push(item);

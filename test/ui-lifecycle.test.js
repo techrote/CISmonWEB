@@ -4,6 +4,7 @@ import vm from "node:vm";
 import test from "node:test";
 import * as surfaces from "../shared/surfaces.js";
 import * as grid from "../shared/focus-grid.js";
+import * as workflowView from "../shared/workflow-view.js";
 import { isFunLayout } from "../shared/fun-core.js";
 
 // Execute the real browser module with controlled requests and a small DOM
@@ -81,7 +82,7 @@ function app(request) {
   });
   const location = { href: "http://127.0.0.1:8787/" };
   const context = vm.createContext({
-    ...surfaces, ...grid, isFunLayout, document, location, URL,
+    ...surfaces, ...grid, ...workflowView, isFunLayout, document, location, URL,
     history: { replaceState(_state, _title, url) { location.href = String(url); } },
     window: { location }, structuredClone,
     createFocusGrid: () => new Element(),

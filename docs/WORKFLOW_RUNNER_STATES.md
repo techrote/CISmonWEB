@@ -106,3 +106,13 @@ Timing CONF ranks only historical sample sufficiency (LOW 1–4,
 MEDIUM 5–15, HIGH 16+). HIGH does not mean calibrated prediction quality.
 Once a running workflow passes its historical median and no positive run ETA
 exists, the grid reports PAST MED rather than a silently blank ETA.
+
+## Matrix-stage analysis
+
+For a fresh multi-job matrix, Focus analyzes **every executing child**, and
+both the executing job and its current executing step when available. The
+STAGE field names the highest-attention representative (with a count of
+simultaneously observed executing jobs), not the complete stage inventory.
+Any child can raise aggregate attention/possible-stall status; the job/step
+prediction remains in S-ETA while the workflow-level ETA remains untouched.
+Stale or completed job evidence cannot create current stage warnings.
