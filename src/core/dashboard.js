@@ -147,7 +147,7 @@ export function buildDashboard(
 
     // A cached job name must not be shown as the current stage after its
     // job-detail snapshot has expired.
-    const visibleJobs = hasFreshJobDetails(run, nowMs) ? (run.jobs || []) : [];
+    const visibleJobs = effectiveState !== RunState.Completed && hasFreshJobDetails(run, nowMs) ? (run.jobs || []) : [];
     let currentJob = visibleJobs.find((job) => job.state === RunState.InProgress);
     if (!currentJob) currentJob = visibleJobs.find((job) => job.state === RunState.Queued);
 
@@ -155,7 +155,7 @@ export function buildDashboard(
       item.stage = currentJob.name;
       const currentStep = currentJob.steps?.find((step) => step.state === RunState.InProgress);
       if (nowEpoch > 1000000000 &&
-          effectiveState !== RunState.Queued && currentJob.state === RunState.InProgress) {
+          effectiveState === RunState.InProgress && currentJob.state === RunState.InProgress) {
         if (currentStep) {
           item.stage = currentStep.name;
           applyStageAnalysis(item,

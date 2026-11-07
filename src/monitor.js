@@ -43,6 +43,19 @@ function detailKey(run) {
   return run.repository + "#" + run.runId;
 }
 
+function attemptNumber(run) {
+  const value = Number(run.runAttempt || 1);
+  return Number.isSafeInteger(value) && value > 0 ? value : 1;
+}
+
+function backfillKey(run) {
+  return detailKey(run) + "@" + attemptNumber(run);
+}
+
+function isLive(run) {
+  return run.state === RunState.Queued || run.state === RunState.InProgress;
+}
+
 export class Monitor {
   constructor(configStore, history) {
     this.configStore = configStore;
@@ -59,6 +72,9 @@ export class Monitor {
     this.queuedBackfill = new Set();
     this.activeDetailNextMs = new Map();
     this.activeDetailErrors = new Map();
+    // A recent-runs list is a bounded window, not an inventory. Runs which
+    // leave that window need their own authoritative status confirmation.
+    this.runReconciliations = new Map();
     // One page per scheduler request; continuation pages take precedence over
     // a new scan so active jobs beyond page 1 are discovered promptly.
     this.liveJobScans = new Map();
@@ -79,6 +95,9 @@ export class Monitor {
     this.lastRateLimitReason = "";
     this.lastSuccessfulSummaryAtMs = 0;
     this.providerReady = false;
+    this.providerGeneration = 0;
+    this.configUpdates = Promise.resolve();
+    this.pendingProviderUpdates = 0;
     this.busy = false;
     this.nextDiscoveryMs = 0;
     this.timer = null;
@@ -154,6 +173,7 @@ export class Monitor {
   }
 
   async discoverRepositories() {
+    const generation = this.providerGeneration;
     const nowMs = Date.now();
     this.nextDiscoveryMs = nowMs + 60000;
     if (!this.config.githubToken) {
@@ -165,6 +185,7 @@ export class Monitor {
     }
 
     const response = await this.client.get("/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member");
+    if (generation !== this.providerGeneration) return false;
     this.updateRate(response, Date.now());
     if (!response.ok || !Array.isArray(response.json)) {
       // A transient repository-list failure must not discard previously
@@ -215,6 +236,11 @@ export class Monitor {
       .map((repo) => repo.full_name)
       .filter((name) => name && this.repositoryAllowed(name))
       .slice(0, this.config.maxRepositories);
+    const retained = new Set(names);
+    for (const name of previous.keys()) {
+      if (!retained.has(name)) this.dropRepositoryTracking(name);
+    }
+    this.fastSweepQueue = this.fastSweepQueue.filter(name => retained.has(name));
     const added = [];
     this.repositories = names.map((fullName) => {
       if (previous.has(fullName)) return previous.get(fullName);
@@ -244,7 +270,8 @@ export class Monitor {
   dropRepositoryTracking(fullName) {
     this.tracker.dropRepository(fullName);
     const prefix = fullName + "#";
-    for (const map of [this.activeDetailNextMs, this.activeDetailErrors, this.liveJobScans]) {
+    for (const map of [this.activeDetailNextMs, this.activeDetailErrors,
+      this.liveJobScans, this.runReconciliations]) {
       for (const key of map.keys()) if (key.startsWith(prefix)) map.delete(key);
     }
     this.backfill = this.backfill.filter(run => run.repository !== fullName);
@@ -257,10 +284,12 @@ export class Monitor {
   }
 
   async probeActivityCandidate(candidate) {
+    const generation = this.providerGeneration;
     const now = Date.now();
     const result = await this.client.get(
       "/repos/" + candidate.fullName + "/actions/runs?per_page=10"
     );
+    if (generation !== this.providerGeneration) return false;
     this.updateRate(result, now);
     candidate.lastProbeMs = now;
     if (!result.ok || !Array.isArray(result.json?.workflow_runs)) {
@@ -323,39 +352,78 @@ export class Monitor {
     return null;
   }
 
-  async applyConfig(input) {
-    this.config = await this.configStore.update(input);
-    this.history.setMaxPerKey(this.config.historyDepth);
-    this.repositories = [];
-    this.tracker = new RunTracker();
-    this.activityCandidates = new Map();
-    this.activityProbeQueue = [];
-    this.normalRequestsSinceActivityProbe = 0;
-    this.backfill = [];
-    this.queuedBackfill.clear();
-    this.activeDetailNextMs.clear();
-    this.activeDetailErrors.clear();
-    this.liveJobScans.clear();
-    this.checkSnapshots.clear();
-    this.normalRequestsSinceCheck = 0;
-    this.fastSweepQueue = [];
-    this.activeDetailStreak = 0;
-    this.liveRepoStreak = 0;
-    this.providerReady = false;
-    await this.discoverRepositories();
-    return this.configStore.publicConfig();
+  queueConfigUpdate(operation) {
+    const pending = this.configUpdates.then(operation);
+    this.configUpdates = pending.catch(() => {});
+    return pending;
   }
 
-  async applyDisplayConfig(input) {
-    this.config = await this.configStore.update({
-      surfaces: input.surfaces ?? this.config.surfaces,
-      activeSurfaceId: input.activeSurfaceId ?? this.config.activeSurfaceId
+  applyConfig(input) {
+    this.pendingProviderUpdates++;
+    return this.queueConfigUpdate(async () => {
+      const oldToken = this.config.githubToken;
+      const next = await this.configStore.update(input);
+      // In-flight requests may finish after saving a different token/filter.
+      // Publish the new generation only after storage succeeds, then reject
+      // every response and scheduler continuation from the previous one.
+      this.providerGeneration++;
+      this.config = next;
+      this.history.setMaxPerKey(this.config.historyDepth);
+      this.repositories = [];
+      this.tracker = new RunTracker();
+      this.activityCandidates = new Map();
+      this.activityProbeQueue = [];
+      this.normalRequestsSinceActivityProbe = 0;
+      this.backfill = [];
+      this.queuedBackfill.clear();
+      this.activeDetailNextMs.clear();
+      this.activeDetailErrors.clear();
+      this.liveJobScans.clear();
+      this.runReconciliations.clear();
+      this.checkSnapshots.clear();
+      this.normalRequestsSinceCheck = 0;
+      this.fastSweepQueue = [];
+      this.fastSweepReason = "";
+      this.activeDetailStreak = 0;
+      this.liveRepoStreak = 0;
+      this.providerReady = false;
+      this.lastSuccessfulSummaryAtMs = 0;
+      this.lastError = "";
+      this.lastErrorScope = "";
+      this.lastErrorAtMs = 0;
+      this.recentRequestErrors = 0;
+      this.nextDiscoveryMs = 0;
+      if (oldToken !== this.config.githubToken) {
+        this.rateRemaining = -1;
+        this.rateLimitedUntilMs = 0;
+        this.lastRateLimitReason = "";
+      }
+      if (Date.now() >= this.rateLimitedUntilMs) await this.discoverRepositories();
+      this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
+      return this.configStore.publicConfig();
+    }).finally(() => { this.pendingProviderUpdates--; });
+  }
+
+  applyDisplayConfig(input) {
+    // Preserve omitted fields at the serialized store boundary. Filling them
+    // from an older monitor snapshot loses a concurrent selection/resize.
+    const patch = {};
+    for (const field of ["surfaces", "activeSurfaceId"]) {
+      if (Object.hasOwn(input, field)) patch[field] = input[field];
+    }
+    return this.queueConfigUpdate(async () => {
+      this.config = await this.configStore.update(patch);
+      return this.configStore.publicConfig();
     });
-    return this.configStore.publicConfig();
   }
 
   async refresh() {
-    if (!this.providerReady) return this.discoverRepositories();
+    if (!this.providerReady) {
+      // The scheduler owns API requests and rate-limit pauses. Repeated UI
+      // rescans must not launch concurrent/bypassing discovery requests.
+      this.nextDiscoveryMs = 0;
+      return true;
+    }
     for (const repo of this.repositories) repo.nextPollMs = 0;
     this.liveJobScans.clear();
     for (const key of this.activeDetailNextMs.keys()) this.activeDetailNextMs.set(key, 0);
@@ -374,7 +442,7 @@ export class Monitor {
   }
 
   queueBackfill(run) {
-    const key = detailKey(run);
+    const key = backfillKey(run);
     if (this.queuedBackfill.has(key)) return;
     this.queuedBackfill.add(key);
     this.backfill.push({ ...run, jobs: [] });
@@ -389,6 +457,7 @@ export class Monitor {
     const key = target.repository + "@" + target.sha;
     const cached = this.checkSnapshots.get(key);
     if (cached) {
+      if (isLive(run) && !cached.active) cached.nextPollMs = 0;
       cached.active ||= run.state !== RunState.Completed;
       cached.lastSeenMs = Date.now();
       return;
@@ -407,8 +476,27 @@ export class Monitor {
   }
 
   dueCheckTarget(nowMs) {
+    // A SHA may serve multiple workflows. Derive its live/visible lifetime
+    // from current tracking, rather than letting one old active observation
+    // poll it every 90 seconds forever after the workflows have finished.
+    const visible = new Set();
+    const live = new Set();
+    for (const tracked of this.tracker.visible(nowMs)) {
+      const run = tracked.snapshot;
+      const target = checkTarget(run);
+      if (!target) continue;
+      const key = target.repository + "@" + target.sha;
+      visible.add(key);
+      if (isLive(run)) live.add(key);
+    }
+    for (const target of this.checkSnapshots.values()) {
+      const wasActive = target.active;
+      target.active = live.has(target.key);
+      // Fetch the final conclusion promptly, then use the finished cadence.
+      if (wasActive && !target.active) target.nextPollMs = Math.min(target.nextPollMs, nowMs);
+    }
     const due = [...this.checkSnapshots.values()].filter(
-      item => item.nextPollMs <= nowMs
+      item => visible.has(item.key) && item.nextPollMs <= nowMs
     );
     // Continue pagination with priority to avoid permanently incomplete
     // 150+ shard PR checks, but do not take slots away from live jobs.
@@ -418,11 +506,13 @@ export class Monitor {
   }
 
   async pollCheckTarget(target) {
+    const generation = this.providerGeneration;
     const page = target.page;
     const url = "/repos/" + target.repository + "/commits/" + target.sha +
       "/check-runs?per_page=" + CHECK_PAGE_SIZE +
       "&filter=latest&page=" + page;
     const response = await this.client.get(url);
+    if (generation !== this.providerGeneration) return false;
     const now = Date.now();
     this.updateRate(response, now);
     if (!response.ok || !Array.isArray(response.json?.check_runs)) {
@@ -492,6 +582,8 @@ export class Monitor {
   }
 
   async pollRepository(repo, nowMs) {
+    const generation = this.providerGeneration;
+    const previousConfirmationMs = repo.lastSuccessAtMs;
     repo.lastPollMs = nowMs;
     repo.pollCount += 1;
 
@@ -499,6 +591,7 @@ export class Monitor {
       "/repos/" + repo.fullName + "/actions/runs?per_page=100",
       repo.etag
     );
+    if (generation !== this.providerGeneration) return false;
     const receivedMs = Date.now();
     this.updateRate(response, receivedMs);
     repo.lastResponseStatus = response.status;
@@ -538,11 +631,21 @@ export class Monitor {
     let hasQueued = false;
     let newestUpdated = 0;
     let backfillQueued = 0;
+    const seen = new Set();
     const lastSummaryRunIds = new Set();
 
     for (const raw of response.json.workflow_runs || []) {
       const run = parseRun(raw, repo.fullName);
-      if (!run.runId) continue;
+      if (!Number.isSafeInteger(run.runId) || run.runId <= 0 || run.state === RunState.Unknown) continue;
+      const existing = this.tracker.find(run.repository, run.runId);
+      if (existing && attemptNumber(run) < attemptNumber(existing.snapshot)) continue;
+      if (existing?.snapshot.state === RunState.Completed && isLive(run) &&
+          attemptNumber(run) === attemptNumber(existing.snapshot)) continue;
+      const key = detailKey(run);
+      seen.add(key);
+      run.providerConfirmedAtMs = receivedMs;
+      this.runReconciliations.delete(key);
+      this.clearFailure("run:" + key);
       lastSummaryRunIds.add(run.runId);
       newestUpdated = Math.max(newestUpdated, run.updatedAtEpoch);
       if (run.event === "pull_request" &&
@@ -550,11 +653,10 @@ export class Monitor {
         this.enqueueCheckTarget(run);
       }
 
-      const existing = this.tracker.find(run.repository, run.runId);
       if (existing && Number(existing.snapshot.runAttempt || 1) !==
           Number(run.runAttempt || 1)) {
-        const key = detailKey(run);
         this.liveJobScans.delete(key);
+        this.activeDetailErrors.delete(key);
         this.activeDetailNextMs.set(key, 0);
       }
       if (shouldTrackSummaryRun(run, Boolean(existing), nowMs, TERMINAL_IMPORT_LOOKBACK_MS)) {
@@ -574,7 +676,7 @@ export class Monitor {
         }
       } else if (run.state === RunState.Completed) {
         if (backfillQueued < this.config.backfillRunsPerRepo &&
-            !this.history.hasRun(run.repository, run.runId)) {
+            !this.history.hasRun(run.repository, run.runId, run.runAttempt)) {
           this.queueBackfill(run);
           backfillQueued += 1;
         }
@@ -582,6 +684,26 @@ export class Monitor {
         this.activeDetailErrors.delete(detailKey(run));
         this.liveJobScans.delete(detailKey(run));
       }
+    }
+
+    // The latest 100 runs can omit older executing/queued runs, especially
+    // while automation repeatedly pushes. Missing is not cancelled/finished.
+    // Retain live evidence and confirm each omitted run in a normal detail
+    // slot; never infer the parent conclusion from completed child jobs.
+    for (const tracked of this.tracker.all()) {
+      const run = tracked.snapshot;
+      if (run.repository !== repo.fullName || !isLive(run)) continue;
+      const key = detailKey(run);
+      if (!seen.has(key) && !this.runReconciliations.has(key)) {
+        this.runReconciliations.set(key, {
+          nextPollMs: 0, errors: 0,
+          lastConfirmedAtMs: Math.max(run.providerConfirmedAtMs || 0,
+            previousConfirmationMs || 0, tracked.firstSeenMs || 0)
+        });
+        this.activeDetailNextMs.set(key, 0);
+      }
+      if (run.state === RunState.InProgress || observedRunningJobs(run, receivedMs).length) hasActive = true;
+      if (run.state === RunState.Queued) hasQueued = true;
     }
 
     repo.lastSummaryRunIds = lastSummaryRunIds;
@@ -604,6 +726,7 @@ export class Monitor {
   }
 
   async pollFastSweep(nowMs) {
+    const generation = this.providerGeneration;
     const batch = takeSweepBatch(this.fastSweepQueue, this.repositories, FAST_SWEEP_BATCH_SIZE);
     if (!batch.length) {
       this.fastSweepReason = "";
@@ -612,6 +735,7 @@ export class Monitor {
 
     this.lastSchedulerAction = "sweep:" + this.fastSweepReason;
     const results = await Promise.allSettled(batch.map((repo) => this.pollRepository(repo, nowMs)));
+    if (generation !== this.providerGeneration) return false;
     const rejected = results.find((result) => result.status === "rejected");
     if (rejected) this.reportFailure("repository sweep", { error: "unexpected polling exception" });
     if (!this.fastSweepQueue.length) this.fastSweepReason = "";
@@ -620,7 +744,75 @@ export class Monitor {
     return true;
   }
 
+  async reconcileRun(tracked) {
+    const generation = this.providerGeneration;
+    const previous = tracked.snapshot;
+    const key = detailKey(previous);
+    const pending = this.runReconciliations.get(key);
+    if (!pending) return false;
+    const response = await this.client.get(
+      "/repos/" + previous.repository + "/actions/runs/" + previous.runId
+    );
+    if (generation !== this.providerGeneration) return false;
+    const receivedMs = Date.now();
+    this.updateRate(response, receivedMs);
+    const run = response.ok && response.json && !Array.isArray(response.json)
+      ? parseRun(response.json, previous.repository) : null;
+    const current = this.tracker.find(previous.repository, previous.runId)?.snapshot;
+    if (current?.state === RunState.Completed && run && isLive(run) &&
+        attemptNumber(run) === attemptNumber(current)) {
+      // A stale list/detail response cannot revive a completed attempt, even
+      // in scheduler bookkeeping after the tracker rejects the transition.
+      this.runReconciliations.delete(key);
+      this.activeDetailNextMs.delete(key);
+      this.activeDetailErrors.delete(key);
+      this.liveJobScans.delete(key);
+      return false;
+    }
+    if (!run || run.runId !== previous.runId || run.state === RunState.Unknown ||
+        attemptNumber(run) < attemptNumber(current || previous)) {
+      pending.errors++;
+      pending.nextPollMs = receivedMs + this.policy.nextInterval(false, false, 0, pending.errors);
+      this.reportFailure("run:" + key, response.ok
+        ? { error: "invalid or superseded run status response" } : response, receivedMs);
+      return false;
+    }
+
+    this.clearFailure("run:" + key);
+    pending.errors = 0;
+    pending.lastConfirmedAtMs = receivedMs;
+    pending.nextPollMs = receivedMs + (run.state === RunState.InProgress
+      ? this.policy.activeMs : this.policy.queuedMs);
+    if (attemptNumber(run) !== attemptNumber(previous)) {
+      this.liveJobScans.delete(key);
+      this.activeDetailErrors.delete(key);
+    }
+    run.providerConfirmedAtMs = receivedMs;
+    this.tracker.upsert(run, receivedMs);
+    if (run.event === "pull_request") this.enqueueCheckTarget(run);
+    if (run.state === RunState.Completed) {
+      this.runReconciliations.delete(key);
+      this.activeDetailNextMs.delete(key);
+      this.activeDetailErrors.delete(key);
+      this.liveJobScans.delete(key);
+      this.clearFailure("jobs:" + key);
+      if (!this.history.hasRun(run.repository, run.runId, run.runAttempt)) this.queueBackfill(run);
+    }
+    const repo = this.repositories.find(item => item.fullName === run.repository);
+    if (repo) {
+      const live = this.tracker.all().map(item => item.snapshot)
+        .filter(item => item.repository === repo.fullName && isLive(item));
+      repo.hadActive = live.some(item => item.state === RunState.InProgress ||
+        observedRunningJobs(item, receivedMs).length > 0);
+      repo.hadQueued = live.some(item => item.state === RunState.Queued);
+      repo.lastActivityMs = Math.max(repo.lastActivityMs || 0,
+        activityTimeFromGitHub(run.updatedAtEpoch, receivedMs));
+    }
+    return true;
+  }
+
   async fetchRunDetails(run, nowMs, recordWhenComplete) {
+    const generation = this.providerGeneration;
     const key = detailKey(run);
     const live = !recordWhenComplete &&
       (run.state === RunState.Queued || run.state === RunState.InProgress);
@@ -631,8 +823,13 @@ export class Monitor {
     const page = scan?.page || 1;
     const response = await this.client.get(
       "/repos/" + run.repository + "/actions/runs/" + run.runId +
+      "/attempts/" + attemptNumber(run) +
       "/jobs?per_page=" + JOB_PAGE_SIZE + "&page=" + page
     );
+    if (generation !== this.providerGeneration) return false;
+    const currentRun = this.tracker.find(run.repository, run.runId)?.snapshot;
+    if (live && currentRun && (attemptNumber(currentRun) !== attemptNumber(run) ||
+        currentRun.state === RunState.Completed)) return false;
     const receivedMs = Date.now();
     this.updateRate(response, receivedMs);
     const scope = "jobs:" + key;
@@ -699,8 +896,10 @@ export class Monitor {
       jobsExpectedCount: expectedCount
     };
     const existing = this.tracker.find(detailed.repository, detailed.runId);
-    if (!recordWhenComplete ||
-        shouldTrackSummaryRun(detailed, Boolean(existing), nowMs, TERMINAL_IMPORT_LOOKBACK_MS)) {
+    const compatibleAttempt = !existing || attemptNumber(existing.snapshot) === attemptNumber(detailed);
+    const regressesTerminal = existing?.snapshot.state === RunState.Completed && isLive(detailed);
+    if (compatibleAttempt && !regressesTerminal && (!recordWhenComplete ||
+        shouldTrackSummaryRun(detailed, Boolean(existing), nowMs, TERMINAL_IMPORT_LOOKBACK_MS))) {
       this.tracker.upsert(detailed, nowMs);
     }
     if (recordWhenComplete && detailed.state === RunState.Completed) {
@@ -710,42 +909,66 @@ export class Monitor {
   }
 
   async serviceLiveDetail(tracked, nowMs) {
-    const key = detailKey(tracked.snapshot);
-    const ok = await this.fetchRunDetails(tracked.snapshot, nowMs, false);
+    const generation = this.providerGeneration;
+    const run = tracked.snapshot;
+    const key = detailKey(run);
+    const pending = this.runReconciliations.get(key);
+    if (pending && pending.nextPollMs <= nowMs) {
+      await this.reconcileRun(tracked);
+      if (generation !== this.providerGeneration) return;
+      const current = this.tracker.find(run.repository, run.runId)?.snapshot;
+      if (current && isLive(current)) {
+        // Confirming the parent does not also fetch jobs. Let the next normal
+        // detail slot do that, preserving one request per scheduler tick.
+        this.activeDetailNextMs.set(key, this.liveJobScans.has(key) ? -1 : 0);
+      }
+      this.activeDetailStreak++;
+      this.lastSchedulerAction = "run-reconcile:" + key;
+      this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
+      return;
+    }
+    const ok = await this.fetchRunDetails(run, nowMs, false);
+    if (generation !== this.providerGeneration) return;
+    const current = this.tracker.find(run.repository, run.runId)?.snapshot;
+    if (!current || !isLive(current) || attemptNumber(current) !== attemptNumber(run)) return;
     const errors = ok ? 0 : (this.activeDetailErrors.get(key) || 0) + 1;
     if (ok) this.activeDetailErrors.delete(key);
     else this.activeDetailErrors.set(key, errors);
 
-    const current = this.tracker.find(tracked.snapshot.repository,
-      tracked.snapshot.runId)?.snapshot || tracked.snapshot;
     const hasActivity = observedRunningJobs(current, Date.now()).length > 0;
     const interval = !ok ? this.policy.nextInterval(false, false, 0, errors)
       : hasActivity || current.state === RunState.InProgress
         ? this.policy.activeMs : this.policy.queuedMs;
     // A partially scanned matrix can hide its active jobs on later pages.
     // Continue immediately (subject to the global API spacing/fairness rule).
-    this.activeDetailNextMs.set(key,
-      ok && this.liveJobScans.has(key) ? -1 : Date.now() + interval);
+    const nextSummary = this.runReconciliations.get(key)?.nextPollMs ?? Infinity;
+    this.activeDetailNextMs.set(key, ok && this.liveJobScans.has(key) ? -1 :
+      Math.min(Date.now() + interval, nextSummary));
     this.activeDetailStreak += 1;
     this.lastSchedulerAction = "live-detail:" + key;
     this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
   }
 
   async tick() {
-    if (this.busy) return;
+    if (this.busy || this.pendingProviderUpdates) return;
+    const generation = this.providerGeneration;
     const nowMs = Date.now();
     this.tracker.prune(nowMs);
     if (nowMs < this.nextRequestAllowedMs || nowMs < this.rateLimitedUntilMs) return;
 
-    if (!this.providerReady) {
-      if (nowMs >= this.nextDiscoveryMs) await this.discoverRepositories();
-      return;
-    }
-
     this.busy = true;
     try {
+      if (!this.providerReady) {
+        if (nowMs >= this.nextDiscoveryMs) {
+          await this.discoverRepositories();
+          if (generation !== this.providerGeneration) return;
+          this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
+        }
+        return;
+      }
       if (nowMs >= this.nextDiscoveryMs) {
         await this.discoverRepositories();
+        if (generation !== this.providerGeneration) return;
         this.lastSchedulerAction = "repository-catalog";
         this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
         return;
@@ -761,6 +984,7 @@ export class Monitor {
         ? this.nextActivityCandidate(nowMs) : null;
       if (activityCandidate) {
         await this.probeActivityCandidate(activityCandidate);
+        if (generation !== this.providerGeneration) return;
         this.normalRequestsSinceActivityProbe = 0;
         this.lastSchedulerAction = "activity-probe:" + activityCandidate.fullName;
         this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
@@ -775,6 +999,7 @@ export class Monitor {
         const target = this.dueCheckTarget(nowMs);
         if (target) {
           await this.pollCheckTarget(target);
+          if (generation !== this.providerGeneration) return;
           this.normalRequestsSinceCheck = 0;
           this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
           this.lastSchedulerAction = "check-runs:" + target.repository;
@@ -784,6 +1009,7 @@ export class Monitor {
 
       if (shouldServiceActive(active, repo, this.activeDetailStreak, ACTIVE_DETAIL_BURST_LIMIT)) {
         await this.serviceLiveDetail(active, nowMs);
+        if (generation !== this.providerGeneration) return;
         this.normalRequestsSinceActivityProbe++;
         this.normalRequestsSinceCheck++;
         return;
@@ -791,6 +1017,7 @@ export class Monitor {
 
       if (repo) {
         await this.pollRepository(repo, nowMs);
+        if (generation !== this.providerGeneration) return;
         this.normalRequestsSinceActivityProbe++;
         this.normalRequestsSinceCheck++;
         this.liveRepoStreak = (repo.hadActive || repo.hadQueued)
@@ -809,6 +1036,7 @@ export class Monitor {
       const remainingCandidate = this.nextActivityCandidate(nowMs);
       if (remainingCandidate) {
         await this.probeActivityCandidate(remainingCandidate);
+        if (generation !== this.providerGeneration) return;
         this.normalRequestsSinceActivityProbe = 0;
         this.lastSchedulerAction = "activity-probe:" + remainingCandidate.fullName;
         this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
@@ -818,17 +1046,39 @@ export class Monitor {
       const target = this.dueCheckTarget(nowMs);
       if (target) {
         await this.pollCheckTarget(target);
+        if (generation !== this.providerGeneration) return;
         this.normalRequestsSinceCheck = 0;
         this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
         this.lastSchedulerAction = "check-runs:" + target.repository;
         return;
       }
 
-      while (this.backfill.length) {
+      for (let remaining = this.backfill.length; remaining > 0; remaining--) {
         const run = this.backfill.shift();
-        this.queuedBackfill.delete(detailKey(run));
-        if (this.history.hasRun(run.repository, run.runId)) continue;
-        await this.fetchRunDetails(run, nowMs, true);
+        if (run.backfillRetryAtMs > nowMs) {
+          this.backfill.push(run);
+          continue;
+        }
+        this.queuedBackfill.delete(backfillKey(run));
+        if (this.history.hasRun(run.repository, run.runId, run.runAttempt)) continue;
+        let ok;
+        try {
+          ok = await this.fetchRunDetails(run, nowMs, true);
+        } catch (error) {
+          if (generation !== this.providerGeneration) return;
+          this.reportFailure("backfill:" + detailKey(run), {
+            error: error?.message || "history recording failed"
+          });
+          ok = false;
+        }
+        if (generation !== this.providerGeneration) return;
+        if (ok) this.clearFailure("backfill:" + detailKey(run));
+        if (!ok) {
+          run.backfillErrors = (run.backfillErrors || 0) + 1;
+          run.backfillRetryAtMs = Date.now() + this.policy.nextInterval(false, false, 0, run.backfillErrors);
+          this.queuedBackfill.add(backfillKey(run));
+          this.backfill.push(run);
+        }
         this.activeDetailStreak = 0;
         this.lastSchedulerAction = "backfill:" + detailKey(run);
         this.nextRequestAllowedMs = Date.now() + BACKFILL_SPACING_MS;
@@ -863,9 +1113,15 @@ export class Monitor {
     const liveAges = this.repositories
       .filter(repo => (repo.hadActive || repo.hadQueued) && repo.lastSuccessAtMs > 0)
       .map(repo => nowMs - repo.lastSuccessAtMs);
+    // A successful recent-runs page cannot refresh a run it no longer
+    // contains. Keep omitted-run confirmation ages in the existing SYNC AGE.
+    for (const pending of this.runReconciliations.values()) {
+      if (pending.lastConfirmedAtMs > 0) liveAges.push(nowMs - pending.lastConfirmedAtMs);
+    }
     const oldestRepoSummaryAgeMs = ages.length ? Math.max(...ages) : null;
     const oldestLiveSummaryAgeMs = liveAges.length ? Math.max(...liveAges) : null;
-    const ongoingDetailFailures = this.activeDetailErrors.size;
+    const ongoingDetailFailures = this.activeDetailErrors.size +
+      [...this.runReconciliations.values()].filter(pending => pending.errors > 0).length;
     const freshError = this.lastError && nowMs - this.lastErrorAtMs < ERROR_VISIBLE_MS;
     const rateLimited = nowMs < this.rateLimitedUntilMs;
     const syncStatus = rateLimited ? "rate_limited" :
@@ -909,6 +1165,7 @@ export class Monitor {
       syncStatus,
       recentRequestErrors: this.recentRequestErrors,
       ongoingDetailFailures,
+      pendingRunReconciliations: this.runReconciliations.size,
       pendingSweepCount: this.fastSweepQueue.length,
       sweepReason: this.fastSweepReason,
       dueRepositoryCount,
