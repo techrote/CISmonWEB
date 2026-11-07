@@ -105,7 +105,7 @@ test("queued GitHub parent with running children is displayed as executing and o
   assert.equal(rows[0].jobActivity.running, 8);
   assert.equal(rows[0].jobActivity.queued, 57);
   assert.equal(rows[0].observedRunningJobs, 8);
-  assert.equal(rows[0].stage, "Execute original cases");
+  assert.match(rows[0].stage, /^8 JOBS EXECUTING · Execute original cases$/);
   assert.ok(rows[0].elapsedMs > 0);
   assert.equal(rows[0].waitingMs, 0);
   assert.equal(m.state().trackedActiveCount, 0);
