@@ -34,6 +34,6 @@ jobs:
       - name: Install Playwright Firefox
         run: npx playwright install firefox
       - name: Verify browser smoke script syntax
-        run: node --check test/focus-firefox-acceptance.mjs
+        run: node --check tooling/focus-firefox-acceptance.mjs
       - name: Run real Firefox / Windows app acceptance
-        run: node test/focus-firefox-acceptance.mjs
+        run: node tooling/focus-firefox-acceptance.mjs
