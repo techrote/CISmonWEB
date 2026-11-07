@@ -491,7 +491,7 @@ function renderDashboard(state) {
   };
   const workerCount = Number(state.activeWorkers || 0);
   const workerLabel = workerCount + (state.activeWorkersPartial ? "+" : "") +
-    " assigned runner slots";
+    " active workers (assigned runner slots)";
   elements.surfaceSummary.title =
     workerCount + " confirmed occupied runners based on jobs with actual runner assignments; " +
     (state.observedRunningJobCount || 0) + " in-progress jobs seen across monitored repositories. " +
