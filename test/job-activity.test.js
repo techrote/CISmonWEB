@@ -46,6 +46,8 @@ function run(overrides = {}) {
 function job(id, status = "completed", now = Math.floor(Date.now() / 1000)) {
   return {
     id, name: "shard " + id, status,
+    runner_id: status === "in_progress" ? id + 100_000 : null,
+    runner_name: status === "in_progress" ? "GitHub Actions " + id : null,
     conclusion: status === "completed" ? "success" : null,
     started_at: new Date((now - 400) * 1000).toISOString(),
     completed_at: status === "completed" ?
@@ -97,14 +99,18 @@ test("queued GitHub parent with running children is displayed as executing and o
 
   const rows = buildDashboard(m.tracker, new RuntimeAnalyzer(m.history),
     Date.now(), Math.floor(Date.now() / 1000), 10);
-  assert.equal(rows[0].state, RunState.InProgress);
+  assert.equal(rows[0].state, RunState.Queued);
+  assert.equal(rows[0].executionState, RunState.InProgress);
   assert.equal(rows[0].providerState, RunState.Queued);
+  assert.equal(rows[0].jobActivity.running, 8);
+  assert.equal(rows[0].jobActivity.queued, 57);
   assert.equal(rows[0].observedRunningJobs, 8);
   assert.equal(rows[0].stage, "Execute original cases");
   assert.ok(rows[0].elapsedMs > 0);
   assert.equal(rows[0].waitingMs, 0);
-  assert.equal(m.state().trackedActiveCount, 1);
-  assert.equal(m.state().trackedQueuedCount, 0);
+  assert.equal(m.state().trackedActiveCount, 0);
+  assert.equal(m.state().trackedQueuedCount, 1);
+  assert.equal(m.state().queuedWithRunningJobsCount, 1);
   assert.equal(m.state().activeWorkers, 8);
   assert.match(calls[0], /per_page=100&page=1$/);
   assert.match(calls[1], /per_page=100&page=2$/);
@@ -213,7 +219,7 @@ test("failed continuation preserves partial evidence and retries same page", asy
 
 test("incomplete or stale evidence remains explicitly partial; terminal parents never occupy slots", () => {
   const now=Date.now();
-  const r=run({jobs:[{id:4,state:RunState.InProgress}]});
+  const r=run({jobs:[{id:4,state:RunState.InProgress,runnerId:7004}]});
   const tracker=new RunTracker();
   tracker.upsert({...r,jobsFetchedAtMs:now,jobsCoverageComplete:false,jobsExpectedCount:200},now);
   let summary=activeWorkerSummary(tracker.all(),now);
@@ -234,7 +240,7 @@ test("duplicate job IDs are counted once; unknown in-progress IDs force partial 
   const now=Date.now();
   const tracker=new RunTracker();
   const r=run({jobsFetchedAtMs:now,jobsCoverageComplete:true,
-    jobs:[{id:31,state:RunState.InProgress},{id:31,state:RunState.InProgress}]});
+    jobs:[{id:31,state:RunState.InProgress,runnerId:7031},{id:31,state:RunState.InProgress,runnerId:7031}]});
   tracker.upsert(r,now);
   assert.equal(activeWorkerSummary(tracker.all(),now).activeWorkers,1);
   tracker.upsert({...r,jobs:[{id:0,state:RunState.InProgress}]},now);
@@ -248,7 +254,7 @@ test("a new GitHub run attempt cannot inherit running jobs from its previous att
   const tracker = new RunTracker();
   const first = run({
     runAttempt: 1, jobsFetchedAtMs: now, jobsCoverageComplete: true,
-    jobs: [{ id: 919, state: RunState.InProgress }]
+    jobs: [{ id: 919, state: RunState.InProgress, runnerId: 7919 }]
   });
   tracker.upsert(first, now);
   assert.equal(activeWorkerSummary(tracker.all(), now).activeWorkers, 1);
