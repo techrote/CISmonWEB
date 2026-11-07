@@ -57,10 +57,10 @@ async function startServer() {
 
 async function stopServer(process) {
   if (!process) return;
-  if (process.exitCode === null) {
+  if (process.exitCode === null && process.signalCode === null) {
     process.kill();
     for (let i = 0; i < 70; i++) {
-      if (process.exitCode !== null) return;
+      if (process.exitCode !== null || process.signalCode !== null) return;
       await sleep(100);
     }
     throw new Error("local server failed to exit");
