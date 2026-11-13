@@ -137,7 +137,9 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
       const required = (measure ? measure.measureText(GRID_LABEL[field]).width :
         GRID_LABEL[field].length * 6) +
         (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0) + 2;
-      const short = th.getBoundingClientRect().width < required;
+      // clientWidth is in layout CSS pixels; getBoundingClientRect() scales
+      // under CSS zoom, while canvas text metrics remain unzoomed.
+      const short = th.clientWidth < required;
       const visible = short ? GRID_SHORT_LABEL[field] : GRID_LABEL[field];
       if (label.dataset.value === visible) return;
       label.dataset.value = visible;
