@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { runActionDefinitions, copyText } from "../public/context-menu.js";
+import { runActionDefinitions, copyText, createContextMenu } from "../public/context-menu.js";
 import { ciUrl, prAssociation, commitUrl } from "../shared/interactions.js";
 
 const row = {
@@ -116,4 +116,99 @@ test("retained old attempts explain disabled watch and acknowledgement without c
   }
   assert.match(menu.find(action => action.id === "unpin").description, /Focus Dual \/ Alerts/);
   assert.equal(menu.find(action => action.id === "arm-run").disabled, true);
+});
+
+// Execute the actual menu controller against a small DOM surface. This
+// regression models a browser dispatching a queued scroll after a keyboard
+// menu opens; it does not replace the production event or focus handlers.
+function controllerSurface() {
+  class Target {
+    constructor() { this.handlers = new Map(); }
+    addEventListener(type, handler) { this.handlers.set(type, [...(this.handlers.get(type) || []), handler]); }
+    removeEventListener(type, handler) { this.handlers.set(type, (this.handlers.get(type) || []).filter(value => value !== handler)); }
+    dispatch(type, values = {}) {
+      const event = { type, target: this, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {}, ...values };
+      for (const handler of this.handlers.get(type) || []) handler(event);
+      return event;
+    }
+  }
+  class Element extends Target {
+    constructor(tagName, document) {
+      super(); this.tagName = tagName; this.ownerDocument = document;
+      this.children = []; this.dataset = {}; this.attributes = {}; this.style = {};
+      this.rect = { left: 24, top: 380, width: 260, height: 32 };
+    }
+    append(...values) { for (const child of values) { child.parentElement = this; this.children.push(child); } }
+    replaceChildren(...values) {
+      if (this.contains(this.ownerDocument.activeElement)) this.ownerDocument.activeElement = this.ownerDocument.body;
+      for (const child of this.children) child.parentElement = null;
+      this.children = []; this.append(...values);
+    }
+    setAttribute(name, value) { this.attributes[name] = value; }
+    get isConnected() { return this === this.ownerDocument.body || Boolean(this.parentElement?.isConnected); }
+    contains(element) { for (let next = element; next; next = next.parentElement) if (next === this) return true; return false; }
+    closest(selector) {
+      if (selector === "[data-run-context]") return this.dataset.runContext ? this : this.parentElement?.closest?.(selector);
+      return null;
+    }
+    querySelectorAll(selector) {
+      const matches = element => selector === "[data-run-context]" ? element.dataset?.runContext :
+        selector === '[role^="menuitem"]' ? element.attributes?.role?.startsWith("menuitem") : false;
+      const output = [];
+      const visit = element => { for (const child of element.children || []) { if (matches(child)) output.push(child); visit(child); } };
+      visit(this); return output;
+    }
+    getBoundingClientRect() { return this.rect; }
+    focus() { this.ownerDocument.activeElement = this; }
+    remove() { if (this.parentElement) this.parentElement.children = this.parentElement.children.filter(child => child !== this); this.parentElement = null; }
+  }
+  const document = new Target();
+  document.defaultView = Object.assign(new Target(), { innerWidth: 1000, innerHeight: 800 });
+  document.createElement = name => new Element(name.toUpperCase(), document);
+  document.createTextNode = text => ({ textContent: text });
+  document.body = document.createElement("body");
+  document.activeElement = document.body;
+  const root = document.createElement("section");
+  const origin = document.createElement("tr");
+  Object.assign(origin.dataset, { runContext: "true", runKey: "owner/repo#22@3", runScope: "desk:vert:2" });
+  document.body.append(root); root.append(origin);
+  const controller = createContextMenu({ root, resolveTarget: () => ({ row,
+    links: { ci: ciUrl(row), pr: prAssociation(row).url, commit: commitUrl(row), sha: row.headSha },
+    association: prAssociation(row) }), onSelect() {} });
+  const menu = document.body.children.find(element => element.id === "runContextMenu");
+  return { document, root, origin, controller, menu };
+}
+
+test("queued pre-open scrolls cannot dismiss keyboard menus; actual origin movement still dismisses", () => {
+  const { document, root, origin, controller, menu } = controllerSurface();
+  origin.focus();
+  document.dispatch("keydown", { target: origin, key: "F10", shiftKey: true });
+  assert.equal(menu.hidden, false);
+  assert.equal(document.activeElement.dataset.action, "copy-ci");
+  // A focus()/scrollIntoView operation completed before the menu opened,
+  // but Chromium dispatches its scroll event in the following task.
+  document.dispatch("scroll", { target: root });
+  assert.equal(menu.hidden, false);
+  document.dispatch("keydown", { target: document.activeElement, key: "Escape" });
+  assert.equal(document.activeElement, origin);
+  document.dispatch("keydown", { target: origin, key: "ContextMenu" });
+  document.dispatch("scroll", { target: root });
+  assert.equal(menu.hidden, false);
+  origin.rect.top -= 24;
+  document.dispatch("scroll", { target: root });
+  assert.equal(menu.hidden, true, "an actual ancestor scroll detaches and dismisses the menu");
+  controller.destroy();
+});
+
+test("scrolling another pane leaves the current run menu usable", () => {
+  const { document, root, origin, controller, menu } = controllerSurface();
+  root.dispatch("contextmenu", { target: origin, clientX: 30, clientY: 400 });
+  assert.equal(menu.hidden, false);
+  const otherPane = document.createElement("section");
+  document.body.append(otherPane);
+  document.dispatch("scroll", { target: otherPane });
+  assert.equal(menu.hidden, false);
+  document.dispatch("keydown", { target: document.activeElement, key: "ArrowDown" });
+  assert.equal(document.activeElement.dataset.action, "copy-pr");
+  controller.destroy();
 });

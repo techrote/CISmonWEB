@@ -73,7 +73,7 @@ export function createContextMenu({ root, resolveTarget, onSelect, onOpen, onErr
   menu.setAttribute("aria-label", "Workflow run actions");
   menu.hidden = true;
   documentObject.body.append(menu);
-  let origin = null, context = null, point = null;
+  let origin = null, context = null, point = null, anchorPosition = null;
   let model = [];
   const eligible = element => element?.closest?.("[data-run-context]");
   const editable = element => Boolean(element?.closest?.("input, textarea, select, [contenteditable='true'], .focus-grid-resize, .focus-sort-button"));
@@ -84,7 +84,7 @@ export function createContextMenu({ root, resolveTarget, onSelect, onOpen, onErr
     const previous = origin;
     menu.hidden = true;
     menu.replaceChildren();
-    origin = context = point = null;
+    origin = context = point = anchorPosition = null;
     if (restore && previous?.isConnected) previous.focus({ preventScroll: true });
   }
   function place() {
@@ -155,6 +155,7 @@ export function createContextMenu({ root, resolveTarget, onSelect, onOpen, onErr
     origin = element;
     context = next;
     const rect = element.getBoundingClientRect();
+    anchorPosition = { left: rect.left, top: rect.top };
     point = keyboard ? { x: Math.max(4, rect.left + 12), y: Math.max(4, rect.top + Math.min(rect.height, 24)) }
       : { x: event.clientX, y: event.clientY };
     menu.hidden = false;
@@ -199,7 +200,16 @@ export function createContextMenu({ root, resolveTarget, onSelect, onOpen, onErr
     if (!menu.hidden && !menu.contains(event.target)) close(false);
   }
   function scroll(event) {
-    if (!menu.hidden && !menu.contains(event.target)) close(false);
+    if (menu.hidden || menu.contains(event.target)) return;
+    if (!origin?.isConnected || !anchorPosition) { close(false); return; }
+    const rect = origin.getBoundingClientRect();
+    // Browsers queue scroll events from focus()/scrollIntoView and grid
+    // restoration. A keyboard menu can open after the movement but before
+    // that old event is dispatched. Only actual movement since opening can
+    // detach this menu from its originating row; an unrelated pane's scroll
+    // or an already-completed scroll must not dismiss a new menu.
+    if (Math.abs(rect.left - anchorPosition.left) > 0.5 ||
+        Math.abs(rect.top - anchorPosition.top) > 0.5) close(false);
   }
   root.addEventListener("contextmenu", contextListener);
   documentObject.addEventListener("keydown", keyListener, true);
