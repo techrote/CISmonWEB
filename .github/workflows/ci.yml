@@ -37,3 +37,39 @@ jobs:
         run: node --check tooling/focus-firefox-acceptance.mjs
       - name: Run real Firefox / Windows app acceptance
         run: node tooling/focus-firefox-acceptance.mjs
+
+  completion-browser-acceptance:
+    name: Completion workflow / ${{ matrix.os }} / ${{ matrix.browser }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            browser: firefox
+          - os: ubuntu-24.04
+            browser: chromium
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install temporary browser test dependency
+        run: npm install --no-save --package-lock=false playwright@1.56.1
+      - name: Install browser and host dependencies
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Check production-interface acceptance script syntax
+        run: node --check tooling/context-menu-acceptance.mjs
+      - name: Exercise real HTTP interactions and multi-window delivery
+        run: node tooling/context-menu-acceptance.mjs
+        env:
+          CISMON_BROWSER: ${{ matrix.browser }}
+          CISMON_BROWSER_ARTIFACTS: artifacts/completion-${{ matrix.browser }}
+      - name: Preserve browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: completion-${{ matrix.os }}-${{ matrix.browser }}
+          path: artifacts/completion-${{ matrix.browser }}
+          if-no-files-found: ignore

@@ -2,3 +2,4 @@ node_modules/
 .cismonweb/
 *.log
 .DS_Store
+artifacts/

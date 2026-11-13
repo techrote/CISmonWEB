@@ -128,14 +128,27 @@ that no integration could ever create more work later. In particular:
 - A new push immediately before verification completes invalidates old-head
   evidence. A push after an event has already been durably observed starts new
   work; the one-shot subscription has finished and can be armed again.
+- Closure preserves a previously verified test-merge SHA, including across
+  restart. A PR first observed already closed without that prior source
+  coverage stays indeterminate; the post-merge commit is not substituted for
+  its former test-merge checks. A required workflow rule pointing outside the
+  verifiable check inventory likewise remains explicitly indeterminate.
 
 Normal live monitoring remains ahead of this additional enrichment. Requests
 share the existing global spacing, rate-limit/backoff gate and low-priority
 quota with ordinary check summaries. Multi-page scans consume one request per
 scheduler slot. ETags and bounded caches are reused. Browser refreshes and
 multiple panes do not multiply GitHub requests; the same PR has one subscription.
-High request pressure can delay verification, and stale scans are restarted
-rather than reported as current.
+One PR inventory at a time owns the continuation slot, with at least one in
+four completion slots available to other due run/association/pin work. This
+prevents several simultaneous PR scans from continually aging out before
+finishing. Ordinary monitoring keeps its existing priority; legacy check
+enrichment and completion work alternate when both are due after five normal
+requests. Scans are bounded to five minutes, ten pages of 100 per inventory,
+and a 256-page ETag cache. Armed-run targets aim for 20-second refreshes,
+finished pins for ten minutes, and permission failures back off for 15 minutes;
+all are subject to the shared request budget. High request pressure can delay
+verification, and stale scans are restarted rather than reported as current.
 
 ## Sound and multi-window delivery
 

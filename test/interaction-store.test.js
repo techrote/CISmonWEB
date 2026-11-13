@@ -236,6 +236,23 @@ test("in-flight old-head response and duplicate PR arms cannot create false succ
   assert.equal(store.targets().subscriptions[0].headSha, nextSha);
 });
 
+test("verified PR merge-source changes persist without resurrecting obsolete test-merge coverage", async t => {
+  const { store, clock, directory } = await setup(t);
+  await store.armPr("owner/project", 9);
+  const sub = store.targets().subscriptions[0];
+  clock.now += 1000;
+  await store.observePr(sub.id, { headSha: sha, mergeSha: nextSha, prState: "open", complete: false, terminal: false,
+    requestStartedAtMs: clock.now, confirmedAtMs: clock.now });
+  assert.equal(store.targets().subscriptions[0].relevantMergeSha, nextSha);
+  clock.now += 1000;
+  await store.observePr(sub.id, { headSha: sha, mergeSha: "", prState: "open", complete: false, terminal: false,
+    requestStartedAtMs: clock.now, confirmedAtMs: clock.now });
+  const restored = new InteractionStore(directory, { now: () => clock.now });
+  await restored.load();
+  assert.equal(restored.targets().subscriptions[0].relevantMergeSha, "");
+  assert.equal(restored.targets().subscriptions[0].seenOpen, true);
+});
+
 test("two browser clients race for one coalesced claim and only one can begin playback", async t => {
   const { store, clock } = await completed(t, { count: 2 });
   clock.now += 1500;

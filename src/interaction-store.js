@@ -355,6 +355,7 @@ export class InteractionStore {
       }
       if (["open", "closed"].includes(evidence.prState)) sub.prState = evidence.prState;
       if (evidence.prState === "open") sub.seenOpen = true;
+      if (evidence.prState === "open" && evidence.mergeSha === "") sub.relevantMergeSha = "";
       if (SHA.test(evidence.mergeSha || "") && evidence.mergeSha.toLowerCase() !== headSha) {
         sub.relevantMergeSha = evidence.mergeSha.toLowerCase();
       }
