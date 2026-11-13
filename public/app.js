@@ -3,7 +3,7 @@ import { workflowStatusPresentation, summarizeProviderRows, uniqueWorkflowRows, 
 import { createFocusGrid } from "/focus-grid-view.js";
 import { GRID_FIELDS, GRID_DATE_FORMATS, GRID_DEFAULT_WIDTH, DEFAULT_FOCUS_COLUMNS,
   normalizeGridFields, normalizePane, normalizeVertCount, normalizeVertPanes,
-  formatGridDuration } from "/focus-grid.js";
+  formatGridDuration, resolvePaneDuration } from "/focus-grid.js";
 import { createFunView } from "/fun-surfaces.js";
 import {
   DEFAULT_SURFACES,
@@ -260,8 +260,14 @@ function targetSortSecondary(paneIndex, paneKind) {
 
 function gridCallbacks(surface, paneIndex = -1, paneKind = "dual") {
   const key = surface.id + ":" + paneKind + ":" + paneIndex;
+  const pane = paneIndex < 0 ? null :
+    surface[paneKind === "vert" ? "vertPanes" : "dualPanes"][paneIndex];
+  // Take a snapshot of the presenting grid's duration policy. An open detail
+  // survives live polling and cannot accidentally inherit the parent surface.
+  const durationPolicy = pane ? resolvePaneDuration(surface, pane) :
+    resolvePaneDuration(surface);
   return {
-    onOpen: openDetail,
+    onOpen: (repository, runId) => openDetail(repository, runId, durationPolicy),
     onInteracting: value => { gridInteracting = value; },
     getScroll: () => gridScroll.get(key) || 0,
     onScroll: value => gridScroll.set(key, value),
@@ -330,7 +336,7 @@ function renderFocusDual(all, surface) {
     );
     section.append(title, createFocusGrid(
       selected,
-      { ...surface, ...pane },
+      { ...surface, ...pane, ...resolvePaneDuration(surface, pane) },
       gridCallbacks(surface, index),
       surface.name + " / " + pane.name
     ));
@@ -359,7 +365,7 @@ function renderFocusVert(all, surface) {
         pane.heightValue + (pane.heightUnit === "vh" ? "% viewport" : "px"))
     );
     section.append(title, createFocusGrid(
-      selected, { ...surface, ...pane },
+      selected, { ...surface, ...pane, ...resolvePaneDuration(surface, pane) },
       gridCallbacks(surface, index, "vert"),
       surface.name + " / " + pane.name
     ));
@@ -599,7 +605,10 @@ async function switchSurface(surfaceId) {
   history.replaceState(null, "", url);
   renderSurfaceTabs();
   applySurfaceVisuals();
-  if (latestState) renderDashboard(latestState);
+  if (latestState) {
+    renderDashboard(latestState);
+    renderSyncHealth(latestState);
+  }
   schedulePoll();
   if (!minimalOnly) try {
     await requestConfig("/api/display", { activeSurfaceId: surfaceId });
@@ -624,9 +633,12 @@ function renderSyncHealth(state) {
     degraded: "DEGRADED", rate_limited: "PAUSED", offline: "OFFLINE"
   };
   elements.providerState.textContent = indicator[mode] || "UNKNOWN";
-  elements.syncAge.textContent = formatAge(
-    state.oldestLiveSummaryAgeMs ?? state.oldestRepoSummaryAgeMs
-  );
+  const ageMs = state.oldestLiveSummaryAgeMs ?? state.oldestRepoSummaryAgeMs;
+  // SYNC AGE is a display metric. Operational warning prose below retains
+  // explicit compact units so it remains intelligible in unitless-hour mode.
+  elements.syncAge.textContent = Number.isFinite(ageMs) && ageMs >= 0
+    ? (formatGridDuration(ageMs, activeSurface(), true) ?? formatAge(ageMs))
+    : "—";
   let warning = "";
   if (mode === "rate_limited") {
     const remaining = Math.max(0, (state.rateLimitedUntil || 0) - Date.now());
@@ -725,16 +737,17 @@ function schedulePoll() {
   }, delay);
 }
 
-function analysisGrid(analysis) {
+function analysisGrid(analysis, durationPolicy) {
   const grid = node("div", "analysis-grid");
+  const fmt = ms => formatDuration(ms, durationPolicy);
   const values = [
     ["ATTENTION", analysis.attention.replaceAll("_", " ")],
-    ["ELAPSED", formatDuration(analysis.elapsedMs)],
-    ["MEDIAN", formatDuration(analysis.baseline?.median || 0)],
-    ["RUN ETA", formatDuration(analysis.estimatedRemainingMs)],
-    ["P25 / P75", formatDuration(analysis.baseline?.p25 || 0) + " / " + formatDuration(analysis.baseline?.p75 || 0)],
-    ["MAD", formatDuration(analysis.baseline?.mad || 0)],
-    ["EWMA", formatDuration(analysis.baseline?.ewma || 0)],
+    ["ELAPSED", fmt(analysis.elapsedMs)],
+    ["MEDIAN", fmt(analysis.baseline?.median || 0)],
+    ["RUN ETA", fmt(analysis.estimatedRemainingMs)],
+    ["P25 / P75", fmt(analysis.baseline?.p25 || 0) + " / " + fmt(analysis.baseline?.p75 || 0)],
+    ["MAD", fmt(analysis.baseline?.mad || 0)],
+    ["EWMA", fmt(analysis.baseline?.ewma || 0)],
     ["RATIO", analysis.ratio ? analysis.ratio.toFixed(2) + "×" : "—"],
     ["ROBUST Z", Number.isFinite(analysis.z) ? analysis.z.toFixed(2) : "—"],
     ["CONFIDENCE", analysis.confidence],
@@ -817,14 +830,15 @@ async function renderDetail(repository, runId, show = true) {
     elements.detailActions.append(link);
   }
 
-  elements.detailBody.replaceChildren(analysisGrid(detail.analysis));
+  const durationPolicy = selection.durationPolicy;
+  elements.detailBody.replaceChildren(analysisGrid(detail.analysis, durationPolicy));
   for (const job of detail.jobs || []) {
     const block = node("section", "job");
     const header = node("div", "job-header");
     header.append(
       node("div", "job-name", job.name + (job.runnerName ? "  ·  " + job.runnerName : "")),
       badge(job.state === "completed" ? job.conclusion : job.state, job.state),
-      node("span", "metric-sub", formatDuration(job.analysis.elapsedMs))
+      node("span", "metric-sub", formatDuration(job.analysis.elapsedMs, durationPolicy))
     );
     block.append(header);
 
@@ -835,7 +849,7 @@ async function renderDetail(repository, runId, show = true) {
         node("span", "step-number", String(step.number).padStart(2, "0")),
         node("span", "", step.name),
         badge(step.state === "completed" ? step.conclusion : step.state, step.state),
-        node("span", "step-duration", formatDuration(step.analysis.elapsedMs))
+        node("span", "step-duration", formatDuration(step.analysis.elapsedMs, durationPolicy))
       );
       steps.append(row);
     }
@@ -850,8 +864,11 @@ async function renderDetail(repository, runId, show = true) {
   if (show && !elements.detailDialog.open) elements.detailDialog.showModal();
 }
 
-async function openDetail(repository, runId) {
-  const selection = { repository, runId };
+async function openDetail(repository, runId, policy = activeSurface()) {
+  const selection = { repository, runId, durationPolicy: {
+    durationMode: policy.durationMode, durationUnit: policy.durationUnit,
+    durationDecimals: policy.durationDecimals
+  } };
   selectedRun = selection;
   try {
     await renderDetail(repository, runId, true);
@@ -960,7 +977,7 @@ const COPIED_FOCUS_FIELDS = [
   "gridHeaderOverflowMode", "gridBreakAfterSeparators", "gridSortBy", "gridSortDir",
   "gridSortSecondaryBy", "gridSortSecondaryDir", "gridLockedWidths",
   "gridAddedFormat", "gridUpdatedFormat", "gridAddedPattern", "gridUpdatedPattern",
-  "durationMode", "durationUnit", "durationDecimals"
+  "durationMode", "durationUnit", "durationDecimals", "durationOverrideExplicit"
 ];
 function currentFocusSource() {
   const source = editingSurfaces.find(surface => surface.id === editingSurfaceId);
@@ -1021,7 +1038,8 @@ function readFieldEditor(selector) {
 function syncDurationControls(prefix) {
   const mode = $("#" + prefix + "DurationMode").value;
   $("#" + prefix + "DurationUnit").disabled = mode !== "decimal";
-  $("#" + prefix + "DurationDecimals").disabled = mode === "compact";
+  $("#" + prefix + "DurationDecimals").disabled =
+    mode === "compact" || mode === "inherit";
 }
 for (const prefix of ["surface", "dualPane"]) {
   $("#" + prefix + "DurationMode").addEventListener("change", () => syncDurationControls(prefix));
@@ -1085,6 +1103,7 @@ function commitPaneForm() {
     gridAddedFormat: $("#dualPaneAddedDateFormat").value,
     gridUpdatedFormat: $("#dualPaneUpdatedDateFormat").value,
     durationMode: $("#dualPaneDurationMode").value,
+    durationOverrideExplicit: $("#dualPaneDurationMode").value !== "inherit",
     durationUnit: $("#dualPaneDurationUnit").value,
     durationDecimals: Number($("#dualPaneDurationDecimals").value),
     gridAddedPattern: $("#dualPaneAddedDatePattern").value,
@@ -1392,6 +1411,7 @@ elements.surfaceForm.addEventListener("submit", async (event) => {
       surfaces: config.surfaces,
       activeSurfaceId
     });
+    if (latestState) renderSyncHealth(latestState);
     elements.surfaceDialog.close();
     renderSurfaceTabs();
     applySurfaceVisuals();
