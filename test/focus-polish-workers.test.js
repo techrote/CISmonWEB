@@ -84,8 +84,8 @@ test("overflow modes migrate legacy wrapping and persist independently per pane"
   assert.equal(normalizeGridOverflowMode(undefined, false),"ellipsis");
   assert.equal(normalizeGridOverflowMode("hard_clip", true),"hard_clip");
   assert.equal(normalizeGridOverflowMode("bad", true),"wrap");
-  assert.equal(GRID_MIN_WIDTH,40);
-  assert.deepEqual(normalizeGridWidths({owner:1,qty:39,branch:80}),{owner:40,qty:40,branch:80});
+  assert.equal(GRID_MIN_WIDTH,36);
+  assert.deepEqual(normalizeGridWidths({owner:1,qty:39,branch:80}),{owner:36,qty:39,branch:80});
   const store = new ConfigStore("/tmp/cismonweb-focus-polish-pure");
   const cfg = store.normalize({
     surfaces: [{
@@ -122,7 +122,7 @@ test("header alignment, no padlock glyph, compact times, hard clip, and scrollba
   assert.doesNotMatch(grid,/🔒/);
   assert.match(grid,/usedWidth\(\) > wrap\.clientWidth/);
   assert.match(grid,/wrap\.dataset\.horizontal = "fit"/);
-  assert.match(grid,/duration\(ms\)/);
+  assert.match(grid,/duration\(ms, options = \{\}, allowZero = false\)/);
   // Scope the compact separator assertion to CONF/QTY: the run-row tooltip
   // intentionally still contains "repo / workflow" with human-readable spaces.
   assert.match(grid,/case "confQty":\s*return[^\n]*\+ "\/" \+/);
