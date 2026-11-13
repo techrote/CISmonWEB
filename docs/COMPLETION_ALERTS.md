@@ -237,6 +237,24 @@ Metadata checks, JSON-only bounded writes and CSP; run/scope identities are
 validated before provider paths are constructed. Delivery claim ownership is
 server-controlled, and claim credentials are omitted from general state responses.
 
+## Automated regression coverage
+
+| Boundary | Coverage |
+| --- | --- |
+| Shared menu and production app callbacks | Copy-first order, exact clipboard contents, disabled/ambiguous associations, keyboard/focus/scroll handling, exact-attempt actions and concurrent UI updates |
+| Scoped presentation | Independent panes, primary/secondary sorting, row caps, explicit filters, pin-only retained history and watch independence |
+| Durable interaction store | Serialized mutations, cancellation generations, restart recovery, stale timing, event deduplication, claim/consume/ack races, coalescing and bounded retention |
+| Production monitor and provider | Complete paginated PR inventories, head/merge changes, required contexts, permissions, delayed suites, reruns, exact timing and scheduler fairness under load |
+| Production HTTP server | Same-origin/identity validation, sound settings and two-client delivery ownership through the real endpoints |
+| Web Audio player | Actual synthesis parameters, conservative levels, gesture-gated resume, blocked state, mute/volume and lost-response recovery |
+| Real Firefox and Chromium pages | Native clipboard, ten layouts, Dual/Vert panes, keyboard/pointer use, viewport edges, popup delivery, restart, PR head/status transitions and rendered audio envelopes |
+
+CI runs Node/syntax checks, the existing Windows Firefox Focus suite, and the
+completion suite on Windows Server 2022/Firefox and Ubuntu 24.04/Chromium.
+Completion jobs preserve screenshots, platform/browser reports, server logs
+and provider-request logs as workflow artifacts. These automated browser runs
+are headless; Windows 11 interaction and physical audio remain owner checks.
+
 ## Owner evaluation and repeatable tests
 
 Run `npm run check` and `npm test`. Browser tools are development-only:
