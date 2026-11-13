@@ -355,6 +355,21 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
     if (wrap.dataset.horizontal === "scroll") wrap.scrollLeft = left;
     wrap.scrollTop = top;
   });
+  // Re-evaluate measured labels after viewport/zoom/font-related reflows,
+  // not just during explicit column resizing. The detached-grid check
+  // disconnects observers from replaced tables on the next notification.
+  if (typeof ResizeObserver !== "undefined") {
+    const resizeObserver = new ResizeObserver(() => {
+      if (!wrap.isConnected) {
+        resizeObserver.disconnect();
+        return;
+      }
+      updateHorizontalOverflow();
+      for (const update of headerUpdates) update();
+    });
+    resizeObserver.observe(wrap);
+    resizeObserver.observe(table);
+  }
   wrap.addEventListener("scroll", () => {
     callbacks.onScroll?.(wrap.scrollLeft);
     callbacks.onScrollTop?.(wrap.scrollTop);
