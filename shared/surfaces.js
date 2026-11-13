@@ -2,7 +2,8 @@ import { DEFAULT_FOCUS_COLUMNS, FOCUS_VERT_DEFAULT, normalizeDualPanes,
   normalizeGridFields, normalizeGridSortBy, normalizeGridWidths,
   normalizeVertCount, normalizeVertPanes, normalizeGridRowHeight,
   normalizeGridRowLines, normalizeGridLockedWidths,
-  normalizeGridDateFormat, normalizeGridDatePattern, normalizeGridOverflowMode } from "./focus-grid.js";
+  normalizeGridDateFormat, normalizeGridDatePattern, normalizeGridOverflowMode,
+  normalizeDurationMode, normalizeDurationUnit, normalizeDurationDecimals } from "./focus-grid.js";
 
 const LAYOUTS = new Set(["rows", "cards", "table", "lanes", "focus_dual", "focus_vert", "signal", "afterimage", "lanes_plus", "hungry_margins"]);
 const DENSITIES = new Set(["comfortable", "compact", "ultra"]);
@@ -423,6 +424,9 @@ export function normalizeSurface(input = {}, index = 0) {
     gridBreakAfterSeparators: bool(
       input.gridBreakAfterSeparators, fallback.gridBreakAfterSeparators ?? true
     ),
+    durationMode: normalizeDurationMode(input.durationMode ?? fallback.durationMode),
+    durationUnit: normalizeDurationUnit(input.durationUnit ?? fallback.durationUnit),
+    durationDecimals: normalizeDurationDecimals(input.durationDecimals ?? fallback.durationDecimals),
     gridSortBy: normalizeGridSortBy(input.gridSortBy ?? fallback.gridSortBy),
     gridSortDir: input.gridSortDir === "asc" ? "asc" : "desc",
     gridSortSecondaryBy: (() => {
@@ -437,7 +441,10 @@ export function normalizeSurface(input = {}, index = 0) {
     gridUpdatedPattern: normalizeGridDatePattern(input.gridUpdatedPattern),
     dualPanes: normalizeDualPanes(input.dualPanes, {
       gridFields: normalizeGridFields(input.gridFields, DEFAULT_FOCUS_COLUMNS),
-      gridWrap: input.gridWrap ?? false
+      gridWrap: input.gridWrap ?? false,
+      durationMode: input.durationMode ?? fallback.durationMode,
+      durationUnit: input.durationUnit ?? fallback.durationUnit,
+      durationDecimals: input.durationDecimals ?? fallback.durationDecimals
     }),
     vertCount: normalizeVertCount(input.vertCount ?? fallback.vertCount ?? FOCUS_VERT_DEFAULT),
     vertPanes: normalizeVertPanes(
@@ -445,7 +452,10 @@ export function normalizeSurface(input = {}, index = 0) {
       input.vertCount ?? fallback.vertCount ?? FOCUS_VERT_DEFAULT,
       {
         gridFields: normalizeGridFields(input.gridFields, DEFAULT_FOCUS_COLUMNS),
-        gridWrap: input.gridWrap ?? false
+        gridWrap: input.gridWrap ?? false,
+        durationMode: input.durationMode ?? fallback.durationMode,
+        durationUnit: input.durationUnit ?? fallback.durationUnit,
+        durationDecimals: input.durationDecimals ?? fallback.durationDecimals
       }
     ),
     motion: choice(input.motion, MOTIONS, fallback.motion || "normal"),
