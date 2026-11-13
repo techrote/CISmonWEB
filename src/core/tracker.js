@@ -11,8 +11,9 @@ function terminalTimestampMs(snapshot, nowMs) {
 }
 
 export class RunTracker {
-  constructor() {
+  constructor(retained = () => false) {
     this.runs = new Map();
+    this.retained = retained;
   }
 
   upsert(snapshot, nowMs) {
@@ -126,7 +127,7 @@ export class RunTracker {
     // Admission changes must not leave old live runs consuming detail
     // scheduler slots or appearing in surfaces after a repo is unwatched.
     for (const key of this.runs.keys()) {
-      if (key.startsWith(repository + "#")) this.runs.delete(key);
+      if (key.startsWith(repository + "#") && !this.retained(this.runs.get(key).snapshot)) this.runs.delete(key);
     }
   }
 
@@ -134,7 +135,7 @@ export class RunTracker {
     return [...this.runs.values()];
   }
 
-  visible(nowMs, successTtlMs = 3600000, terminalTtlMs = 3600000) {
+  visible(nowMs, successTtlMs = 3600000, terminalTtlMs = 3600000, includeRetained = true) {
     return this.all().filter((run) => {
       const active = run.snapshot.state === RunState.Queued || run.snapshot.state === RunState.InProgress;
       const failure = needsAttention(run.snapshot.conclusion);
@@ -145,13 +146,13 @@ export class RunTracker {
         nowMs - run.terminalSinceMs <= ttl &&
         !(failure && run.acknowledged);
 
-      return run.manualWatch || active || persistentObservedFailure || recentTerminal;
+      return includeRetained && this.retained(run.snapshot) || run.manualWatch || active || persistentObservedFailure || recentTerminal;
     });
   }
 
   prune(nowMs, successTtlMs = 3600000, terminalTtlMs = 3600000) {
     for (const [key, run] of this.runs.entries()) {
-      if (!isTerminal(run.snapshot.state) || run.manualWatch) continue;
+      if (!isTerminal(run.snapshot.state) || run.manualWatch || this.retained(run.snapshot)) continue;
 
       const persistentObservedFailure =
         needsAttention(run.snapshot.conclusion) && run.observedActive && !run.acknowledged;

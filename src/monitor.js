@@ -18,6 +18,7 @@ import {
   takeSweepBatch
 } from "./scheduler.js";
 import { shouldTrackSummaryRun } from "./summary-policy.js";
+import { CompletionProvider } from "./completion-provider.js";
 
 const REQUEST_SPACING_MS = 1000;
 const BACKFILL_SPACING_MS = 1200;
@@ -57,11 +58,13 @@ function isLive(run) {
 }
 
 export class Monitor {
-  constructor(configStore, history) {
+  constructor(configStore, history, interactions = null) {
     this.configStore = configStore;
     this.history = history;
+    this.interactions = interactions;
+    this.completions = new CompletionProvider(this, interactions);
     this.config = null;
-    this.tracker = new RunTracker();
+    this.tracker = new RunTracker(run => this.completions.retained(run));
     this.analyzer = new RuntimeAnalyzer(history, 32);
     this.policy = new PollPolicy();
     this.repositories = [];
@@ -80,6 +83,7 @@ export class Monitor {
     this.liveJobScans = new Map();
     this.checkSnapshots = new Map();
     this.normalRequestsSinceCheck = 0;
+    this.lastEnrichmentKind = "checks";
     this.fastSweepQueue = [];
     this.fastSweepReason = "";
     this.activeDetailStreak = 0;
@@ -370,7 +374,8 @@ export class Monitor {
       this.config = next;
       this.history.setMaxPerKey(this.config.historyDepth);
       this.repositories = [];
-      this.tracker = new RunTracker();
+      this.tracker = new RunTracker(run => this.completions.retained(run));
+      this.completions.reset();
       this.activityCandidates = new Map();
       this.activityProbeQueue = [];
       this.normalRequestsSinceActivityProbe = 0;
@@ -382,6 +387,7 @@ export class Monitor {
       this.runReconciliations.clear();
       this.checkSnapshots.clear();
       this.normalRequestsSinceCheck = 0;
+      this.lastEnrichmentKind = "checks";
       this.fastSweepQueue = [];
       this.fastSweepReason = "";
       this.activeDetailStreak = 0;
@@ -663,6 +669,11 @@ export class Monitor {
         const tracked = this.tracker.upsert(run, nowMs);
         tracked.providerConfirmedAtMs = receivedMs;
       }
+      // Normal live polling establishes a fresh post-arm baseline without
+      // another request. Terminal delivery uses the exact-attempt verifier.
+      if (this.interactions && isLive(run)) await this.interactions.observeRun(run, {
+        requestStartedAtMs: nowMs, confirmedAtMs: receivedMs, coverageComplete: true
+      });
 
       if (run.state === RunState.InProgress || run.state === RunState.Queued) {
         // Queued is a provider status, not proof that no matrix job runs.
@@ -963,7 +974,12 @@ export class Monitor {
           await this.discoverRepositories();
           if (generation !== this.providerGeneration) return;
           this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
+          return;
         }
+        // Durable subscriptions and pins remain useful if a repository falls
+        // out of activity selection, or catalog discovery temporarily fails.
+        // They use the same rate gate and consume one request, never a loop.
+        if (this.config.githubToken) await this.serviceCompletionEnrichment(nowMs);
         return;
       }
       if (nowMs >= this.nextDiscoveryMs) {
@@ -996,13 +1012,19 @@ export class Monitor {
       );
 
       if (this.normalRequestsSinceCheck >= CHECK_SERVICE_INTERVAL) {
+        const completion = this.completions.due(nowMs);
         const target = this.dueCheckTarget(nowMs);
+        if (completion && (!target || this.lastEnrichmentKind !== "completion")) {
+          await this.serviceCompletionEnrichment(nowMs, completion);
+          return;
+        }
         if (target) {
           await this.pollCheckTarget(target);
           if (generation !== this.providerGeneration) return;
           this.normalRequestsSinceCheck = 0;
           this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
           this.lastSchedulerAction = "check-runs:" + target.repository;
+          this.lastEnrichmentKind = "checks";
           return;
         }
       }
@@ -1044,12 +1066,18 @@ export class Monitor {
       }
 
       const target = this.dueCheckTarget(nowMs);
+      const completion = this.completions.due(nowMs);
+      if (completion && (!target || this.lastEnrichmentKind !== "completion")) {
+        await this.serviceCompletionEnrichment(nowMs, completion);
+        return;
+      }
       if (target) {
         await this.pollCheckTarget(target);
         if (generation !== this.providerGeneration) return;
         this.normalRequestsSinceCheck = 0;
         this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
         this.lastSchedulerAction = "check-runs:" + target.repository;
+        this.lastEnrichmentKind = "checks";
         return;
       }
 
@@ -1147,6 +1175,25 @@ export class Monitor {
       nowEpoch,
       DASHBOARD_CANDIDATE_LIMIT
     );
+    const normallyVisible = new Set(this.tracker.visible(nowMs, undefined, undefined, false)
+      .map(tracked => backfillKey(tracked.snapshot)));
+    const identities = new Set(rows.map(run => backfillKey(run)));
+    // The primary tracker represents the latest attempt. Persisted pins can
+    // still reference a previous attempt, or a run outside the recent window.
+    // Build those rows from their independently confirmed stored snapshots;
+    // never synthesize a successful/terminal state from a missing response.
+    const pins = this.interactions?.targets().pins || [];
+    for (const pin of pins) {
+      if (identities.has(backfillKey(pin)) || !pin.snapshot) continue;
+      const snapshot = pin.snapshot;
+      const pinnedTracker = { visible: () => [{
+        snapshot, firstSeenMs: pin.createdAtMs || nowMs,
+        providerConfirmedAtMs: pin.confirmedAtMs || 0,
+        manualWatch: false, acknowledged: false, observedActive: false
+      }] };
+      const item = buildDashboard(pinnedTracker, this.analyzer, nowMs, nowEpoch, 1)[0];
+      if (item) { rows.push(item); identities.add(backfillKey(pin)); }
+    }
 
     return {
       providerReady: this.providerReady,
@@ -1182,14 +1229,30 @@ export class Monitor {
       lastError: freshError || !this.providerReady ? this.lastError : "",
       lastErrorAgeMs: freshError ? nowMs - this.lastErrorAtMs : null,
       updatedAt: nowMs,
+      ...(this.interactions ? { interactions: this.interactions.publicState() } : {}),
       rows: rows.map(row => ({
-        ...row, checks: this.checksForRun(row)
+        ...row, checks: this.checksForRun(row),
+        prAssociation: this.completions.association(row),
+        retainedOnly: !normallyVisible.has(backfillKey(row)),
+        actionsAvailable: attemptNumber(this.tracker.find(row.repository, row.runId)?.snapshot || {}) === row.runAttempt &&
+          Boolean(this.tracker.find(row.repository, row.runId)),
+        ...this.pinPresentation(row, pins)
       }))
     };
   }
 
-  detail(repository, runId) {
-    const tracked = this.tracker.find(repository, runId);
+  detail(repository, runId, runAttempt) {
+    let tracked = this.tracker.find(repository, runId);
+    let actionsAvailable = Boolean(tracked);
+    let providerNote = "";
+    if (runAttempt !== undefined && (!tracked || attemptNumber(tracked.snapshot) !== runAttempt)) {
+      const pin = this.interactions?.targets().pins.find(item => item.repository === repository &&
+        item.runId === runId && item.runAttempt === runAttempt);
+      if (!pin?.snapshot) return null;
+      tracked = { snapshot: pin.snapshot, manualWatch: false, acknowledged: false };
+      actionsAvailable = false;
+      providerNote = "This pinned historical attempt is independent of the currently tracked rerun. Watch and acknowledgement apply only to the current tracked attempt.";
+    }
     if (!tracked) return null;
     const nowEpoch = Math.floor(Date.now() / 1000);
     const run = tracked.snapshot;
@@ -1202,7 +1265,9 @@ export class Monitor {
       observedRunningJobs: observedRunningJobs(run, Date.now()).length,
       acknowledged: tracked.acknowledged,
       manualWatch: tracked.manualWatch,
+      actionsAvailable, providerNote,
       checks: this.checksForRun(run),
+      prAssociation: this.completions.association(run),
       analysis: this.analyzer.analyzeRun(analyzed, nowEpoch),
       jobs: (run.jobs || []).map((job) => ({
         ...job,
@@ -1213,5 +1278,47 @@ export class Monitor {
         }))
       }))
     };
+  }
+
+  async serviceCompletionEnrichment(nowMs, task = this.completions.due(nowMs)) {
+    if (!task) return false;
+    const generation = this.providerGeneration;
+    await this.completions.service(task);
+    if (generation !== this.providerGeneration) return false;
+    this.normalRequestsSinceCheck = 0;
+    this.lastEnrichmentKind = "completion";
+    this.lastSchedulerAction = "completion:" + task.type + ":" + task.repository;
+    this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
+    return true;
+  }
+
+  pinPresentation(row, pins) {
+    const pin = pins.find(item => backfillKey(item) === backfillKey(row));
+    if (!pin) return {};
+    const status = pin.status || "pending";
+    return {
+      pinStatus: status, pinReason: pin.reason || "",
+      providerUnavailable: status === "unavailable",
+      ...(status !== "available" ? { providerDataStale: true } : {})
+    };
+  }
+
+  interactionRun(repository, runId, runAttempt) {
+    const tracked = this.tracker.find(repository, runId);
+    if (tracked && attemptNumber(tracked.snapshot) === runAttempt) return {
+      ...tracked.snapshot, providerConfirmedAtMs: tracked.providerConfirmedAtMs || tracked.snapshot.providerConfirmedAtMs || 0,
+      manualWatch: tracked.manualWatch, acknowledged: tracked.acknowledged,
+      prAssociation: this.completions.association(tracked.snapshot)
+    };
+    const pin = this.interactions?.targets().pins.find(item => item.repository === repository && item.runId === runId && item.runAttempt === runAttempt);
+    if (pin?.snapshot) return { ...pin.snapshot, providerConfirmedAtMs: pin.confirmedAtMs || 0,
+      prAssociation: this.completions.association(pin.snapshot), pinStatus: pin.status };
+    return null;
+  }
+
+  requestPrAssociation(identity) {
+    const run = this.interactionRun(identity.repository, identity.runId, identity.runAttempt || 1);
+    if (!run) return { status: "unavailable", reason: "Run attempt is no longer available; reopen the menu." };
+    return this.completions.requestAssociation(run);
   }
 }
