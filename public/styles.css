@@ -922,7 +922,10 @@ body.surface-hide-chrome main { padding-top: 10px; }
   display: block;
   width: 100%;
   text-align: center;
-  padding: 9px 2px;
+  /* Reserve a top band for corner badges at even the 36px minimum width,
+     so centered header lettering never runs underneath a sort marker. */
+  padding: 18px 2px 5px;
+  box-sizing: border-box;
   cursor: pointer;
   color: var(--muted);
   font-size: inherit;
