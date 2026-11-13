@@ -31,6 +31,14 @@ async function api(path, options = {}) {
 async function saveSurfaces(surfaces) {
   return api("/api/display", { method: "PUT", body: JSON.stringify({ surfaces }) });
 }
+async function awaitSavedSurface(surfaceId, predicate) {
+  for (let i = 0; i < 55; i++) {
+    const surface = (await api("/api/config")).surfaces.find(s => s.id === surfaceId);
+    if (predicate(surface)) return surface;
+    await sleep(100);
+  }
+  throw new Error("Timed out waiting for the saved " + surfaceId + " surface state");
+}
 async function startServer() {
   const child = spawn(globalThis.process.execPath, ["src/server.js"], {
     cwd,
@@ -345,10 +353,15 @@ try {
     "mouse resize must persist width");
   // Click and Shift+click must still change sort state without moving labels.
   await page.locator('th[data-field="elapsed"] .focus-sort').click();
+  await page.waitForFunction(() => document.querySelector('th[data-field="elapsed"]')
+    ?.getAttribute("aria-sort") !== "none");
   await page.locator('th[data-field="workflow"] .focus-sort').click({ modifiers: ["Shift"] });
-  config = await api("/api/config");
-  assert.equal(config.surfaces.find(s => s.id === "focus").gridSortBy, "elapsed");
-  assert.equal(config.surfaces.find(s => s.id === "focus").gridSortSecondaryBy, "workflow");
+  await page.waitForFunction(() => document.querySelector('th[data-field="workflow"]')
+    ?.querySelector(".focus-sort-indicator")?.textContent?.startsWith("2"));
+  const sorted = await awaitSavedSurface("focus",
+    surface => surface.gridSortBy === "elapsed" && surface.gridSortSecondaryBy === "workflow");
+  assert.equal(sorted.gridSortBy, "elapsed");
+  assert.equal(sorted.gridSortSecondaryBy, "workflow");
   assert.equal(await page.locator('th[data-field="elapsed"] .focus-sort-indicator').count(), 1);
   await page.evaluate(() => { document.documentElement.style.zoom = "1.25"; });
   await page.waitForTimeout(350);
