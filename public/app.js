@@ -2,7 +2,8 @@ import { isFunLayout } from "/fun-core.js";
 import { workflowStatusPresentation, summarizeProviderRows, uniqueWorkflowRows, hiddenQueuedExecutingRows } from "/workflow-view.js";
 import { createFocusGrid } from "/focus-grid-view.js";
 import { GRID_FIELDS, GRID_DATE_FORMATS, GRID_DEFAULT_WIDTH, DEFAULT_FOCUS_COLUMNS,
-  normalizeGridFields, normalizePane, normalizeVertCount, normalizeVertPanes } from "/focus-grid.js";
+  normalizeGridFields, normalizePane, normalizeVertCount, normalizeVertPanes,
+  formatGridDuration } from "/focus-grid.js";
 import { createFunView } from "/fun-surfaces.js";
 import {
   DEFAULT_SURFACES,
@@ -91,8 +92,10 @@ function badge(text, className) {
   return node("span", "badge " + (className || ""), String(text || "unknown").replaceAll("_", " "));
 }
 
-function formatDuration(ms) {
-  if (!ms || ms < 0) return "—";
+function formatDuration(ms, options = activeSurface(), allowZero = false) {
+  if (!Number.isFinite(ms) || ms < 0 || (!allowZero && ms === 0)) return "—";
+  const decimal = formatGridDuration(ms, options, allowZero);
+  if (decimal !== null) return decimal;
   const total = Math.floor(ms / 1000);
   const days = Math.floor(total / 86400);
   const hours = Math.floor((total % 86400) / 3600);
@@ -160,7 +163,7 @@ function fieldMeta(row, field) {
         ? "WAITING" : "ELAPSED",
       row.state === "queued" && row.executionState !== "in_progress"
         ? formatDuration(row.waitingMs) :
-        row.elapsedLowerBound ? "≥" + (row.elapsedMs ? formatDuration(row.elapsedMs) : "0s") :
+        row.elapsedLowerBound ? "≥" + formatDuration(row.elapsedMs || 0, activeSurface(), true) :
           formatDuration(row.elapsedMs),
       row.elapsedLowerBound ? "since first observed running (lower bound)" : ""
     ];
@@ -956,7 +959,8 @@ const COPIED_FOCUS_FIELDS = [
   "gridFields", "gridWidths", "gridRowLines", "gridOverflowMode",
   "gridHeaderOverflowMode", "gridBreakAfterSeparators", "gridSortBy", "gridSortDir",
   "gridSortSecondaryBy", "gridSortSecondaryDir", "gridLockedWidths",
-  "gridAddedFormat", "gridUpdatedFormat", "gridAddedPattern", "gridUpdatedPattern"
+  "gridAddedFormat", "gridUpdatedFormat", "gridAddedPattern", "gridUpdatedPattern",
+  "durationMode", "durationUnit", "durationDecimals"
 ];
 function currentFocusSource() {
   const source = editingSurfaces.find(surface => surface.id === editingSurfaceId);
@@ -1014,8 +1018,20 @@ function readFieldEditor(selector) {
     .map(chip => chip.dataset.field);
 }
 
+function syncDurationControls(prefix) {
+  const mode = $("#" + prefix + "DurationMode").value;
+  $("#" + prefix + "DurationUnit").disabled = mode !== "decimal";
+  $("#" + prefix + "DurationDecimals").disabled = mode === "compact";
+}
+for (const prefix of ["surface", "dualPane"]) {
+  $("#" + prefix + "DurationMode").addEventListener("change", () => syncDurationControls(prefix));
+}
 function writePaneForm(pane) {
   $("#dualPaneName").value = pane.name;
+  $("#dualPaneDurationMode").value = pane.durationMode || "compact";
+  $("#dualPaneDurationUnit").value = pane.durationUnit || "auto";
+  $("#dualPaneDurationDecimals").value = String(pane.durationDecimals || 1);
+  syncDurationControls("dualPane");
   $("#dualPaneSort").value = pane.gridSortBy;
   $("#dualPaneDirection").value = pane.gridSortDir;
   $("#dualPaneSecondarySort").value = pane.gridSortSecondaryBy || "";
@@ -1068,6 +1084,9 @@ function commitPaneForm() {
     gridSortSecondaryDir: $("#dualPaneSecondaryDirection").value,
     gridAddedFormat: $("#dualPaneAddedDateFormat").value,
     gridUpdatedFormat: $("#dualPaneUpdatedDateFormat").value,
+    durationMode: $("#dualPaneDurationMode").value,
+    durationUnit: $("#dualPaneDurationUnit").value,
+    durationDecimals: Number($("#dualPaneDurationDecimals").value),
     gridAddedPattern: $("#dualPaneAddedDatePattern").value,
     gridUpdatedPattern: $("#dualPaneUpdatedDatePattern").value,
     maxItems: Number($("#dualPaneMax").value),
@@ -1132,6 +1151,10 @@ function updateDualSection(surface) {
 
 function writeSurfaceForm(surface) {
   $("#surfaceName").value = surface.name;
+  $("#surfaceDurationMode").value = surface.durationMode || "compact";
+  $("#surfaceDurationUnit").value = surface.durationUnit || "auto";
+  $("#surfaceDurationDecimals").value = String(surface.durationDecimals || 1);
+  syncDurationControls("surface");
   $("#surfaceGridOverflow").value = surface.gridOverflowMode || (surface.gridWrap ? "wrap" : "ellipsis");
   $("#surfaceGridBreakAfterSeparators").checked = surface.gridBreakAfterSeparators !== false;
   $("#surfaceGridSort").value = surface.gridSortBy;
@@ -1199,6 +1222,9 @@ function readSurfaceForm(existing) {
     gridSortSecondaryDir: $("#surfaceGridSecondaryDirection").value,
     gridAddedFormat: $("#surfaceAddedDateFormat").value,
     gridUpdatedFormat: $("#surfaceUpdatedDateFormat").value,
+    durationMode: $("#surfaceDurationMode").value,
+    durationUnit: $("#surfaceDurationUnit").value,
+    durationDecimals: Number($("#surfaceDurationDecimals").value),
     gridAddedPattern: $("#surfaceAddedDatePattern").value,
     gridUpdatedPattern: $("#surfaceUpdatedDatePattern").value,
     gridFields: readFieldEditor("#gridFieldEditor"),
