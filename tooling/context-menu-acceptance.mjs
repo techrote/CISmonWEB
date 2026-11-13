@@ -275,6 +275,24 @@ try {
     ["vert", ["vert:0", "vert:1", "vert:2"]], ["cards", ["main"]], ["lanes", ["main"]],
     ["signal", ["main"]], ["afterimage", ["main"]], ["lanes_plus", ["main"]], ["hungry_margins", ["main"]]]) {
     await show(page, surface);
+    await page.evaluate(() => {
+      window.__contextMenuTrace = [];
+      for (const name of ["keydown", "keyup", "scroll", "focusin", "contextmenu"]) {
+        document.addEventListener(name, event => {
+          const focusedRun = document.activeElement?.closest?.("[data-run-context]");
+          if (focusedRun) window.__traceRunIdentity = { key: focusedRun.dataset.runKey, pane: focusedRun.dataset.paneId };
+          const identity = window.__traceRunIdentity;
+          const origin = identity && [...document.querySelectorAll("[data-run-context]")].find(element =>
+            element.dataset.runKey === identity.key && element.dataset.paneId === identity.pane);
+          const rectangle = origin?.getBoundingClientRect();
+          window.__contextMenuTrace.push({ type: event.type, key: event.key, target: event.target.id || event.target.className,
+            active: document.activeElement?.dataset.runKey || document.activeElement?.dataset.action || document.activeElement?.tagName,
+            menuHidden: document.querySelector("#runContextMenu")?.hidden, scrollY,
+            origin: identity, rect: rectangle && { x: rectangle.x, y: rectangle.y } });
+          if (window.__contextMenuTrace.length > 30) window.__contextMenuTrace.shift();
+        }, true);
+      }
+    });
     for (const scope of scopes) {
       await menu(page, 101, scope);
       assert.equal((await page.locator("#runContextMenu button").first().textContent()).trim(), "Copy CI link");
@@ -282,12 +300,14 @@ try {
       await page.keyboard.press("Escape");
       await runRow(page, 101, scope).focus();
       await page.keyboard.press("Shift+F10");
-      assert.equal(await page.locator("#runContextMenu").isVisible(), true);
+      assert.equal(await page.locator("#runContextMenu").isVisible(), true,
+        surface + " / " + scope + " Shift+F10: " + JSON.stringify(await page.evaluate(() => window.__contextMenuTrace)));
       await page.keyboard.press("ArrowDown");
       assert.equal(await page.evaluate(() => document.activeElement.dataset.action), "copy-pr");
       await page.keyboard.press("Escape");
       await page.keyboard.press("ContextMenu");
-      assert.equal(await page.locator("#runContextMenu").isVisible(), true);
+      assert.equal(await page.locator("#runContextMenu").isVisible(), true,
+        surface + " / " + scope + " ContextMenu key: " + JSON.stringify(await page.evaluate(() => window.__contextMenuTrace)));
       await page.keyboard.press("Tab");
       assert.equal(await page.locator("#runContextMenu").isVisible(), false);
     }
@@ -512,6 +532,14 @@ try {
 } catch (error) {
   report.status = "failed";
   report.error = String(error.stack || error);
+  report.menuTraces = [];
+  for (const context of browser?.contexts() || []) {
+    for (const page of context.pages()) {
+      const trace = await page.evaluate(() => window.__contextMenuTrace || []).catch(() => []);
+      if (trace.length) report.menuTraces.push(trace);
+    }
+  }
+  if (report.menuTraces.length) console.error("Context menu event traces:", JSON.stringify(report.menuTraces));
   if (artifacts && browser) {
     for (const context of browser.contexts()) {
       const page = context.pages()[0];
