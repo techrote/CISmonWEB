@@ -306,6 +306,13 @@ try {
     const secondBadge = await page.locator('th[data-field="elapsed"] .focus-sort-indicator').innerText();
     assert.equal(secondBadge, "2↓", "secondary badge must have rank and arrow");
     assert.equal((await header.locator(".focus-sort-label").innerText()).includes("↑"), false);
+    if (width === 36) {
+      await page.evaluate(() => { document.documentElement.style.zoom = "1.25"; });
+      await page.waitForTimeout(200);
+      assert.equal((await header.locator(".focus-sort-label").innerText()).trim(), "WORKF",
+        "zoom must not trick the header into using the unclipped full name");
+      await page.evaluate(() => { document.documentElement.style.zoom = "1"; });
+    }
   }
   await mkdir(imageDir, { recursive: true });
   await page.screenshot({ path: join(imageDir, "headers-wide.png") });
