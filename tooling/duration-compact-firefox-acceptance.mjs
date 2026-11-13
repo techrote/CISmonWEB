@@ -280,7 +280,8 @@ try {
   await show(page, "focus");
   config = await api("/api/config");
   const focus = config.surfaces.find(s => s.id === "focus");
-  focus.gridFields = ["workflow", "elapsed", "repository", "owner", "state", "updated"];
+  focus.gridFields = ["workflow", "elapsed", "repository", "owner", "state", "updated",
+    "branch", "stage", "jobActivity", "providerAge", "attention", "checks"];
   focus.gridSortBy = "workflow";
   focus.gridSortDir = "asc";
   focus.gridSortSecondaryBy = "elapsed";
