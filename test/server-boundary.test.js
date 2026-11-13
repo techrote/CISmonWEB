@@ -8,11 +8,13 @@ import path from "node:path";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { InteractionStore } from "../src/interaction-store.js";
 
 const projectDir = fileURLToPath(new URL("../", import.meta.url));
 
-async function startServer(t, cwd = projectDir) {
+async function startServer(t, cwd = projectDir, seed = null) {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), "cismon-http-data-"));
+  if (seed) await seed(dataDir);
   const reservation = net.createServer();
   await new Promise((resolve) => reservation.listen(0, "127.0.0.1", resolve));
   const port = reservation.address().port;
@@ -165,4 +167,79 @@ test("an unavailable artwork asset returns an HTTP failure without terminating t
     assert.equal((await fetch(base + resource, { signal: AbortSignal.timeout(2000) })).status, 500);
     assert.equal((await fetch(base + "/api/state")).status, 200);
   }
+});
+
+test("completion API preserves same-origin security and validates exact identities and settings", async t => {
+  const { base } = await startServer(t);
+  const before = await (await fetch(base + "/api/config")).json();
+  for (const pathname of ["/api/interactions", "/api/notifications/settings", "/api/notifications/claim", "/api/notifications/begin", "/api/notifications/ack"]) {
+    assert.equal((await request(base, pathname, {
+      method: "POST", headers: { Origin: "https://untrusted.example", "Content-Type": "application/json" }, chunks: ["{}"]
+    })).status, 403, pathname);
+    assert.equal((await request(base, pathname, { method: "POST", headers: { "Content-Type": "text/plain" }, chunks: ["{}"] })).status, 415);
+  }
+  const post = (pathname, value) => request(base, pathname, {
+    method: "POST", headers: { "Content-Type": "application/json" }, chunks: [JSON.stringify(value)]
+  });
+  for (const value of [
+    { action: "arm-run", repository: "owner/repo", runId: 1 },
+    { action: "arm-run", repository: "../secrets", runId: 1, runAttempt: 1 },
+    { action: "pin", repository: "owner/repo", runId: 1, runAttempt: "1", scope: { surfaceId: "focus", paneId: "main" } },
+    { action: "cancel-pr", repository: "owner/repo", prNumber: 0 },
+    { action: "execute", repository: "owner/repo", runId: 1, runAttempt: 1 }
+  ]) assert.equal((await post("/api/interactions", value)).status, 400);
+  assert.equal((await post("/api/interactions", { action: "arm-run", repository: "owner/repo", runId: 1, runAttempt: 1 })).status, 409);
+  for (const value of [{ volume: 2 }, { volume: "0.4" }, { muted: "false" }, { soundEnabled: 1 }]) {
+    assert.equal((await post("/api/notifications/settings", value)).status, 400);
+  }
+  assert.equal((await post("/api/notifications/claim", { clientId: "invalid/id", audioReady: true })).status, 400);
+  const saved = await post("/api/notifications/settings", { soundEnabled: true, volume: 0.2, githubToken: "must-not-persist" });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(JSON.parse(saved.text).settings, { soundEnabled: true, muted: false, volume: 0.2 });
+  assert.doesNotMatch(saved.text, /must-not-persist|githubToken/);
+  assert.deepEqual(await (await fetch(base + "/api/config")).json(), before, "sound writes cannot alter surface/token configuration");
+  assert.equal((await request(base, "/api/run?repository=owner/repo&runId=1&runAttempt=0")).status, 400);
+  assert.equal((await post("/api/watch", { repository: "owner/repo", runId: 1, runAttempt: 2, watched: true })).status, 409);
+  for (const route of ["/context-menu.js", "/notifications.js", "/interactions.js"]) {
+    const response = await request(base, route);
+    assert.equal(response.status, 200);
+    assert.match(response.headers["content-security-policy"], /script-src 'self'/);
+    assert.equal(response.headers["x-content-type-options"], "nosniff");
+  }
+});
+
+test("production HTTP delivery serializes two clients and persists consumed/acknowledged event status", async t => {
+  const { base } = await startServer(t, projectDir, async dataDir => {
+    const store = new InteractionStore(dataDir);
+    await store.load();
+    await store.setSettings({ soundEnabled: true });
+    const run = { repository: "owner/repo", runId: 81, runAttempt: 2, workflowName: "CI", state: "in_progress", conclusion: "unknown" };
+    await store.armRun(run);
+    const now = Date.now();
+    await store.observeRun(run, { requestStartedAtMs: now, confirmedAtMs: now });
+    await store.observeRun({ ...run, state: "completed", conclusion: "success" }, { requestStartedAtMs: now, confirmedAtMs: now });
+    // Advance this fixture's coalescing age without altering production API
+    // responses or the claim/consume/ack implementation under test.
+    const state = JSON.parse(await (await import("node:fs/promises")).readFile(store.filePath, "utf8"));
+    state.events[0].observedAtMs -= 2000;
+    await (await import("node:fs/promises")).writeFile(store.filePath, JSON.stringify(state));
+  });
+  const post = async (pathname, value) => {
+    const response = await fetch(base + pathname, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(value) });
+    return { status: response.status, value: await response.json() };
+  };
+  const claims = await Promise.all(["browser-alpha", "browser-bravo"].map(clientId => post("/api/notifications/claim", { clientId, audioReady: true })));
+  assert.ok(claims.every(response => response.status === 200));
+  assert.equal(claims.filter(response => response.value.claimId).length, 1);
+  const index = claims.findIndex(response => response.value.claimId);
+  const identity = { clientId: ["browser-alpha", "browser-bravo"][index], claimId: claims[index].value.claimId };
+  const starts = await Promise.all([post("/api/notifications/begin", identity), post("/api/notifications/begin", identity)]);
+  assert.deepEqual(starts.map(response => response.status).sort(), [200, 409]);
+  const beforeAck = await (await fetch(base + "/api/state")).json();
+  assert.equal(beforeAck.interactions.events[0].delivery.status, "attempted");
+  assert.equal(beforeAck.interactions.events[0].delivery.claimId, undefined);
+  const ack = await post("/api/notifications/ack", { ...identity, status: "played" });
+  assert.equal(ack.status, 200);
+  assert.equal(ack.value.events[0].delivery.status, "played");
+  assert.equal((await post("/api/notifications/claim", { clientId: "browser-charlie", audioReady: true })).value.claimId, null);
 });

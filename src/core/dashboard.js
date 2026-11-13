@@ -72,6 +72,7 @@ export function buildDashboard(
     const item = {
       repository: run.repository,
       workflow: run.workflowName,
+      workflowId: run.workflowId || 0,
       stage: "",
       runId: run.runId,
       runNumber: run.runNumber,
@@ -94,6 +95,7 @@ export function buildDashboard(
       headSha: run.headSha,
       checkSha: run.checkSha || "",
       prNumber: run.prNumber || 0,
+      prCandidates: run.prCandidates || [],
       htmlUrl: run.htmlUrl,
       state: run.state, // never replace GitHub's provider status
       executionState: effectiveState, // used solely for execution time/priority

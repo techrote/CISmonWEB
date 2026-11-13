@@ -128,6 +128,32 @@ Older readers ignore the new grouped samples even though they understand the
 completion marker. New readers continue to accept both formats; the audit
 does not rewrite or discard existing timing history.
 
+## Completion interactions
+
+`shared/interactions.js` defines exact-attempt identities, safe GitHub links
+and outcome categories. `public/context-menu.js` owns one delegated menu for
+all run-oriented renderers. Presentation projects scoped pin order before row
+selection, history condensation and primary/secondary grid sorting, without
+changing attention or manual-watch state.
+
+`src/interaction-store.js` persists pins, one-shot subscriptions, settings and
+the bounded event ledger in a separate atomic file. Its serialized transactions
+commit a completion event and subscription disarm together. Generation IDs
+protect rearmed subscriptions from earlier asynchronous responses. Delivery
+uses claim, durable begin and acknowledgement; consumed attempts are never
+requeued. `public/notifications.js` handles the discoverable controls, Web Audio
+player, coalesced server delivery and playback diagnostics.
+
+`src/completion-provider.js` advances one request at a time inside the existing
+monitor enrichment budget. It verifies run attempts, lazily resolves PR
+associations, inventories PR checks/statuses/workflows and required contexts,
+and confirms the current head before/after each bounded scan. Two stable complete
+terminal scans settle a PR candidate. The existing check-summary display stays
+separate from this stricter completion decision.
+
+See [Completion alerts](COMPLETION_ALERTS.md) for exact semantics, bounds,
+permission requirements and the crash/restart delivery tradeoff.
+
 ## Local HTTP boundary
 
 src/server.js serves the static dashboard and a small local JSON API.

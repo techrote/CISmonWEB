@@ -3,6 +3,7 @@ import {
   normalizeGridFields, reorderGridFields, separatorBreakSegments, durationBreakSegments, sortGridRows
 } from "/focus-grid.js";
 import { workflowStatusPresentation } from "/workflow-view.js";
+import { prioritizePinnedRows } from "/surfaces.js";
 
 const make = (tag, className = "", text) => {
   const n = document.createElement(tag);
@@ -211,8 +212,8 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
   head.append(headerRow);
   table.append(head);
   const body = make("tbody");
-  for (const row of sortGridRows(rows, options.gridSortBy, options.gridSortDir,
-    options.gridSortSecondaryBy, options.gridSortSecondaryDir)) {
+  for (const row of prioritizePinnedRows(sortGridRows(rows, options.gridSortBy, options.gridSortDir,
+    options.gridSortSecondaryBy, options.gridSortSecondaryDir))) {
     const tr = make("tr", "focus-grid-row");
     tr.dataset.attention = row.attention || "normal";
     tr.tabIndex = 0;
@@ -220,11 +221,11 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
       " · run ID " + row.runId +
       (row.runAttempt > 1 ? " · attempt " + row.runAttempt : "") +
       " · GitHub state: " + (row.providerState || row.state);
-    tr.addEventListener("click", () => callbacks.onOpen?.(row.repository, row.runId));
+    tr.addEventListener("click", () => callbacks.onOpen?.(row.repository, row.runId, row.runAttempt || 1));
     tr.addEventListener("keydown", ev => {
       if (!["Enter", " "].includes(ev.key)) return;
       ev.preventDefault();
-      callbacks.onOpen?.(row.repository, row.runId);
+      callbacks.onOpen?.(row.repository, row.runId, row.runAttempt || 1);
     });
     for (const field of fields) {
       const td = make("td", "focus-grid-cell");
@@ -298,6 +299,7 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
       }
       tr.append(td);
     }
+    callbacks.onRow?.(tr, row);
     body.append(tr);
   }
   table.append(body);

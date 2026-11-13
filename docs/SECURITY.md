@@ -8,6 +8,11 @@ Use a fine-grained GitHub token with read-only access and only to repositories C
 
 Do not use an Actions write token, administration token, or a broad classic PAT when narrower access is possible.
 
+Completion verification additionally uses read-only Pull requests, Checks,
+Commit statuses, Contents (base-branch required contexts) and Metadata (branch
+rules) endpoints. Missing permissions keep verification indeterminate instead
+of weakening coverage. See [completion permissions](COMPLETION_ALERTS.md#storage-permissions-and-compatibility).
+
 ## The browser does not receive the token
 
 The token is submitted to the local configuration endpoint and retained by the Node process.
@@ -41,6 +46,13 @@ accepted settings and clean up their temporary files. Run one server process
 per data directory; this queue does not coordinate independent processes.
 
 This is not a hardware-backed secret store. A user or process that can read the account's files should be assumed capable of recovering the stored token.
+
+Scoped pins, subscriptions, sound preferences and bounded event history are
+stored separately in `interactions.json`, using the same atomic private-file
+pattern. That file contains compact run/PR metadata, not tokens or logs. Claim
+and playback transitions are serialized on the server; general state responses
+omit delivery-owner credentials. Browser playback consumes a claim durably
+before starting audio, preventing duplicate playback across tabs/restarts.
 
 For higher-assurance use, provide the token as an environment variable from an operating-system secret manager instead of saving it through the UI.
 

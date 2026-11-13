@@ -69,6 +69,7 @@ export class GitHubClient {
         notModified: response.status === 304,
         json,
         etag: response.headers.get("etag") || "",
+        link: response.headers.get("link") || "",
         rateRemaining: Number.isFinite(remaining) ? remaining : -1,
         rateResetEpoch: Number.isFinite(resetEpoch) ? resetEpoch : 0,
         retryAfterMs,
@@ -120,6 +121,9 @@ export function parseTimestamp(value) {
 }
 
 export function parseRun(value, repository) {
+  const prCandidates = Array.isArray(value.pull_requests) ? value.pull_requests
+    .filter(pull => Number.isSafeInteger(pull?.number) && pull.number > 0)
+    .map(pull => ({ number: pull.number, headSha: pull.head?.sha || "" })) : [];
   return {
     repository,
     workflowId: Number(value.workflow_id || 0),
@@ -134,6 +138,9 @@ export function parseRun(value, repository) {
     // synthetic merge commit rather than the PR's actual head.
     checkSha: value.pull_requests?.[0]?.head?.sha || value.head_sha || "",
     prNumber: Number(value.pull_requests?.[0]?.number || 0),
+    // Historical display enrichment retains the supplied hint, but clipboard
+    // and completion actions require the independently verified association.
+    prCandidates,
     htmlUrl: value.html_url || "",
     state: parseState(value.status),
     conclusion: parseConclusion(value.conclusion),
