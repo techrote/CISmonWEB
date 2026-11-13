@@ -33,9 +33,12 @@ See [EXECUTION_ETA_GRID.md](EXECUTION_ETA_GRID.md) for details.
 
 Column headings are centred; all table cell text is vertically centred.
 Ctrl-click still locks widths but the lock indication is a **darker header**,
-not an additional padlock character. Minimum width is 40px. Duration
-strings and the combined CONF/QTY field are compact (e.g. `1h16m`,
-`HIGH/18`). In **Wrap** mode, each time unit remains indivisible:
+not an additional padlock character. Minimum width is 36px (approximately
+five header characters). Headers automatically switch to abbreviations of at
+most five characters when their full names cannot fit. Primary and secondary
+sorting appear as small corner badges (arrows or 2+arrow), not as header text,
+so the title remains centred. Duration strings and the combined CONF/QTY
+field default to compact presentation (e.g. `1h16m`, `HIGH/18`). In **Wrap** mode, each time unit remains indivisible:
 `22m16s` may wrap as `22m` / `16s`, never `22m1` / `6s`.
 This applies to ELAPSED, MED, ETA and S-ETA even when the optional
 underscore/dash/dot break preference is off. Very narrow cells clip rather
@@ -68,6 +71,24 @@ unknown, not zero. Worker and provider aggregates cover monitored/admitted
 repositories, not GitHub account-wide runner capacity. Distinct pane
 appearances may exceed unique displayed workflows: only the latter contribute
 to GitHub state and attention counts.
+
+## Duration presentation
+
+In **Surface profiles → Duration presentation**, choose **Compact** (existing
+format), **Decimal with units**, or **Unitless decimal hours**. Decimal with
+units automatically chooses h/m/s by magnitude, or uses a fixed h/m/s/d unit.
+Choose **1 or 2 decimal places** (rather than mathematical significant figures).
+
+| Input | Decimal auto, 1 / 2 places | Unitless hours, 1 / 2 places |
+|---|---|---|
+| 4h33m | `4.6h` / `4.55h` | `4.6` / `4.55` |
+| 6m26s | `6.4m` / `6.43m` | `0.1` / `0.11` |
+
+The format affects displayed elapsed, queue waiting, baseline, ETA,
+source age and detail durations, but **not** numeric sorting, analysis
+calculations, or timestamp formats. Each Dual/Vert pane has independent
+duration controls and the **Apply Focus settings** action copies them.
+Older saved profiles remain in Compact mode.
 
 ## Field and column controls
 
