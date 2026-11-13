@@ -5,13 +5,15 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, readFile, writeFile, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import net from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
 import { normalizeSurfaces } from "../shared/surfaces.js";
 import { FUN_PRESET_VERSION } from "../shared/fun-core.js";
 
-const playwright = await import(process.env.CISMON_PLAYWRIGHT_MODULE || "playwright");
+const playwrightModule = process.env.CISMON_PLAYWRIGHT_MODULE || "playwright";
+const playwright = await import(isAbsolute(playwrightModule) ? pathToFileURL(playwrightModule).href : playwrightModule);
 const browserName = process.env.CISMON_BROWSER || "firefox";
 assert.ok(["firefox", "chromium"].includes(browserName));
 const headless = process.env.CISMON_HEADLESS !== "0";
@@ -120,7 +122,7 @@ async function waitState(predicate, name, timeout = 120000) {
   throw new Error("Timed out: " + name + "\n" + JSON.stringify(state?.interactions) + "\n" + serverOutput);
 }
 async function startServer() {
-  server = spawn(process.execPath, ["--import", resolve("tooling/completion-provider-fixture.mjs"), "src/server.js"], {
+  server = spawn(process.execPath, ["--import", pathToFileURL(resolve("tooling/completion-provider-fixture.mjs")).href, "src/server.js"], {
     cwd: resolve("."), windowsHide: true,
     env: { ...process.env, GITHUB_TOKEN: "", CISMON_OWNER: "", CISMON_HOST: "127.0.0.1",
       CISMON_PORT: String(port), CISMON_DATA_DIR: dataDir, CISMON_BROWSER_FIXTURE: fixturePath,
@@ -155,16 +157,42 @@ async function menu(page, id = 101, scope) {
   await page.locator("#runContextMenu").waitFor({ state: "visible" });
 }
 async function action(page, name) {
+  if (name.startsWith("copy-")) {
+    // Closing a menu is synchronous; clipboard writes are not. Do not steal
+    // document focus for the clipboard read before the actual write settles.
+    // Wait out any previous toast so its "Copied" cannot satisfy this action.
+    await page.locator("#interactionToast").waitFor({ state: "hidden" });
+  }
   await page.locator('#runContextMenu [data-action="' + name + '"]').click();
   await page.locator("#runContextMenu").waitFor({ state: "hidden" });
+  if (name.startsWith("copy-")) {
+    await page.waitForFunction(() => {
+      const toast = document.querySelector("#interactionToast");
+      return toast && !toast.hidden && /^(Copied|Copy failed:)/.test(toast.textContent);
+    });
+    assert.equal(await page.locator("#interactionToast").textContent(), "Copied",
+      "production clipboard action must report success before contents are inspected");
+  }
 }
 async function clipboardContents(page) {
+  if (browserName === "chromium") {
+    // Headless Chromium's native Clipboard API is its clipboard authority;
+    // an OS Ctrl+V bridge is not supplied by every headless environment. This
+    // grants only the test reader permission, AFTER the real menu write.
+    // Never replace navigator.clipboard or return the expected fixture text.
+    await page.context().grantPermissions(["clipboard-read"], { origin: base });
+    await page.bringToFront();
+    report.clipboardReader = "Native Chromium navigator.clipboard.readText; reader permission granted after production write";
+    return page.evaluate(() => navigator.clipboard.readText());
+  }
   // Paste by a real browser gesture, not a mocked navigator.clipboard.
+  report.clipboardReader = "Native Firefox Ctrl+V into a real textarea";
   await page.evaluate(() => {
     const input = document.createElement("textarea"); input.id = "clipboardAcceptance";
     document.body.append(input); input.focus();
   });
   await page.keyboard.press(process.platform === "darwin" ? "Meta+V" : "Control+V");
+  await page.waitForFunction(() => document.querySelector("#clipboardAcceptance")?.value.length > 0);
   const text = await page.locator("#clipboardAcceptance").inputValue();
   await page.locator("#clipboardAcceptance").evaluate(element => element.remove());
   return text;
