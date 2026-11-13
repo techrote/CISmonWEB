@@ -106,6 +106,27 @@ export function normalizeDurationUnit(value) {
 export function normalizeDurationDecimals(value) {
   return Number(value) === 2 ? 2 : 1;
 }
+// Pane policy is either inherited or an explicit local override. Older
+// snapshots from the initial duration change materialized "compact" in every
+// pane; without the explicit marker that value must migrate to inheritance.
+// Non-compact old panes are retained as intentional overrides.
+export function normalizePaneDurationMode(input = {}) {
+  if (input.durationMode === "inherit" || input.durationMode == null) return "inherit";
+  if (input.durationMode === "compact" && input.durationOverrideExplicit !== true) {
+    return "inherit";
+  }
+  return DURATION_MODES.includes(input.durationMode) ? input.durationMode : "inherit";
+}
+export function resolvePaneDuration(surface = {}, pane = {}) {
+  const inherited = normalizePaneDurationMode(pane) === "inherit";
+  return {
+    durationMode: normalizeDurationMode(inherited ? surface.durationMode : pane.durationMode),
+    durationUnit: normalizeDurationUnit(inherited ? surface.durationUnit : pane.durationUnit),
+    durationDecimals: normalizeDurationDecimals(
+      inherited ? surface.durationDecimals : pane.durationDecimals
+    )
+  };
+}
 // null means preserve each view's existing compact-duration formatting.
 // Decimal precision means digits after the decimal point (not significant figures).
 // This only changes text: raw timing values remain authoritative for sorting.
@@ -210,6 +231,7 @@ export function normalizeGridSortBy(value) {
 
 export function normalizePane(input = {}, index = 0, parent = {}) {
   const left = index === 0;
+  const durationMode = normalizePaneDurationMode(input);
   const textList = value => Array.isArray(value) ? value.map(String).filter(Boolean) :
     typeof value === "string" ? value.split(/[\n,]/).map(x=>x.trim()).filter(Boolean) : [];
   const boolean = (value, fallback) => typeof value === "boolean" ? value : fallback;
@@ -243,7 +265,8 @@ export function normalizePane(input = {}, index = 0, parent = {}) {
     gridBreakAfterSeparators: boolean(
       input.gridBreakAfterSeparators, parent.gridBreakAfterSeparators ?? true
     ),
-    durationMode: normalizeDurationMode(input.durationMode ?? parent.durationMode),
+    durationMode,
+    durationOverrideExplicit: durationMode !== "inherit",
     durationUnit: normalizeDurationUnit(input.durationUnit ?? parent.durationUnit),
     durationDecimals: normalizeDurationDecimals(input.durationDecimals ?? parent.durationDecimals),
     gridSortBy: normalizeGridSortBy(input.gridSortBy ?? (left ? "priority" : "attention")),
