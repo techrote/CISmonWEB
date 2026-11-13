@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { ConfigStore } from "./config-store.js";
 import { FileHistoryStore } from "./history-store.js";
 import { Monitor } from "./monitor.js";
+import { InteractionError, InteractionStore } from "./interaction-store.js";
+import { prAssociation, validPinScope, validRepository, validRun } from "../shared/interactions.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.resolve(__dirname, "../public");
@@ -12,7 +14,8 @@ const sharedDir = path.resolve(__dirname, "../shared");
 const artDir = path.join(publicDir, "art");
 const configStore = new ConfigStore();
 const history = new FileHistoryStore(configStore.dataDir);
-const monitor = new Monitor(configStore, history);
+const interactions = new InteractionStore(configStore.dataDir);
+const monitor = new Monitor(configStore, history, interactions);
 
 const HOST = process.env.CISMON_HOST || "127.0.0.1";
 const PORT = Number(process.env.CISMON_PORT || 8787);
@@ -129,6 +132,9 @@ async function serveStatic(urlPath, res) {
   const routes = {
     "/": [path.join(publicDir, "index.html"), "text/html; charset=utf-8"],
     "/app.js": [path.join(publicDir, "app.js"), "text/javascript; charset=utf-8"],
+    "/context-menu.js": [path.join(publicDir, "context-menu.js"), "text/javascript; charset=utf-8"],
+    "/notifications.js": [path.join(publicDir, "notifications.js"), "text/javascript; charset=utf-8"],
+    "/interactions.js": [path.join(sharedDir, "interactions.js"), "text/javascript; charset=utf-8"],
     "/styles.css": [path.join(publicDir, "styles.css"), "text/css; charset=utf-8"],
     "/surfaces.js": [path.join(sharedDir, "surfaces.js"), "text/javascript; charset=utf-8"],
     "/focus-grid.js": [path.join(sharedDir, "focus-grid.js"), "text/javascript; charset=utf-8"],
@@ -193,6 +199,66 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "GET" && url.pathname === "/api/state") return json(res, 200, monitor.state());
     if (req.method === "GET" && url.pathname === "/api/config") return json(res, 200, configStore.publicConfig());
+    if (req.method === "GET" && url.pathname === "/api/interactions") return json(res, 200, interactions.publicState());
+
+    if (req.method === "POST" && url.pathname === "/api/interactions") {
+      const body = await readJson(req);
+      const { action, repository, runId, runAttempt, scope, generation } = body;
+      if (!["pin", "unpin", "arm-run", "cancel-run", "arm-pr", "cancel-pr", "resolve-pr"].includes(action)) {
+        throw new HttpError(400, "unknown run action");
+      }
+      if (generation !== undefined && (typeof generation !== "string" || generation.length > 100)) {
+        throw new HttpError(400, "invalid subscription generation");
+      }
+      if (action === "cancel-pr") {
+        if (!validRepository(repository) || !Number.isSafeInteger(body.prNumber) || body.prNumber < 1) {
+          throw new HttpError(400, "a valid repository and PR number are required");
+        }
+        return json(res, 200, await interactions.cancel("pr", { repository, prNumber: body.prNumber }, generation));
+      }
+      const identity = { repository, runId, runAttempt };
+      if (!validRun(identity)) throw new HttpError(400, "a repository, positive run ID and exact run attempt are required");
+      if (action === "cancel-run") return json(res, 200, await interactions.cancel("run", identity, generation));
+      if (action === "pin" || action === "unpin") {
+        if (!validPinScope(scope)) throw new HttpError(400, "a valid surface and pane scope are required");
+        // Deleted surfaces and temporarily hidden panes can always be
+        // unpinned from management without recreating their configuration.
+        if (action === "unpin") return json(res, 200, await interactions.setPin(identity, scope, false));
+        if (!configStore.current.surfaces.some(surface => surface.id === scope.surfaceId)) {
+          throw new HttpError(409, "surface no longer exists; reopen the context menu");
+        }
+      }
+      const run = monitor.interactionRun(repository, runId, runAttempt);
+      if (!run) throw new HttpError(409, "run attempt is no longer available; refresh and reopen the menu");
+      if (action === "resolve-pr") {
+        monitor.requestPrAssociation(identity);
+        return json(res, 200, interactions.publicState());
+      }
+      if (action === "pin") return json(res, 200, await interactions.setPin(run, scope));
+      if (action === "arm-run") return json(res, 200, await interactions.armRun(run));
+      const association = prAssociation(run);
+      if (association.status !== "resolved") {
+        monitor.requestPrAssociation(identity);
+        throw new HttpError(409, association.reason);
+      }
+      if (body.prNumber !== undefined && body.prNumber !== association.number) {
+        throw new HttpError(409, "PR association changed; reopen the context menu");
+      }
+      return json(res, 200, await interactions.armPr(repository, association.number));
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/notifications/settings") {
+      return json(res, 200, await interactions.setSettings(await readJson(req)));
+    }
+    if (req.method === "POST" && url.pathname === "/api/notifications/claim") {
+      return json(res, 200, await interactions.claim(await readJson(req)));
+    }
+    if (req.method === "POST" && url.pathname === "/api/notifications/begin") {
+      return json(res, 200, await interactions.begin(await readJson(req)));
+    }
+    if (req.method === "POST" && url.pathname === "/api/notifications/ack") {
+      return json(res, 200, await interactions.acknowledge(await readJson(req)));
+    }
 
     if (req.method === "PUT" && url.pathname === "/api/config") {
       const value = await monitor.applyConfig(await readJson(req));
@@ -228,11 +294,22 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && url.pathname === "/api/watch") {
       const body = await readJson(req);
+      if (body.runAttempt !== undefined) {
+        if (!validRun(body)) throw new HttpError(400, "a valid exact run attempt is required");
+        const current = monitor.tracker.find(body.repository, body.runId);
+        if (!current || (current.snapshot.runAttempt || 1) !== body.runAttempt) {
+          throw new HttpError(409, "only the current tracked attempt can change manual watch state");
+        }
+      }
       return json(res, monitor.tracker.setManualWatch(body.repository, Number(body.runId), body.watched) ? 200 : 404, { ok: true });
     }
 
     if (req.method === "GET" && url.pathname === "/api/run") {
-      const detail = monitor.detail(url.searchParams.get("repository") || "", Number(url.searchParams.get("runId")));
+      const runAttempt = url.searchParams.has("runAttempt") ? Number(url.searchParams.get("runAttempt")) : undefined;
+      if (runAttempt !== undefined && (!Number.isSafeInteger(runAttempt) || runAttempt < 1)) {
+        throw new HttpError(400, "runAttempt must be a positive integer");
+      }
+      const detail = monitor.detail(url.searchParams.get("repository") || "", Number(url.searchParams.get("runId")), runAttempt);
       return detail ? json(res, 200, detail) : json(res, 404, { error: "run not found" });
     }
 
@@ -240,10 +317,11 @@ const server = http.createServer(async (req, res) => {
     json(res, 404, { error: "not found" });
   } catch (error) {
     if (res.headersSent || res.destroyed) return res.destroy();
-    json(res, error instanceof HttpError ? error.status : 500, { error: error.message });
+    json(res, error instanceof HttpError || error instanceof InteractionError ? error.status : 500, { error: error.message });
   }
 });
 
+await interactions.load();
 await monitor.init();
 
 server.listen(PORT, HOST, () => {

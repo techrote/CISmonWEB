@@ -149,6 +149,46 @@ See docs/ARCHITECTURE.md and docs/SECURITY.md.
 
 There are no runtime npm dependencies.
 
+## Run actions and completion chimes
+
+Right-click a run, or focus it and press **Shift+F10** / the **Context Menu**
+key. The first two actions are **Copy CI link**, then **Copy PR link**. The
+menu is shared by rows, tables, cards, repository lanes, every independent
+Focus Dual/Vert pane and the experimental run lists. Firefox **Shift +
+right-click** retains the browser's native menu. Arrow keys navigate; Escape
+closes. Ordinary left-click/Enter still opens Run Detail.
+
+| Feature | Purpose | Persistence |
+| --- | --- | --- |
+| Pin to top | Prioritizes the selected attempt in this surface/pane, ahead of ordinary sorting and row caps; explicit filters still apply | Survives browser and server restarts |
+| Watch run | Keeps a run visible using the existing manual watch behavior | Existing server-session behavior |
+| Alerts surface | Filters for interesting, suspicious or actionable work | Existing surface profile |
+| Completion alert | One-shot verified run-attempt or PR-check completion, with optional sound | Durable subscription and event history |
+
+Open **Notifications** from the bell in the dashboard or minimal/popup footer.
+Sound starts **off**. Enable sound and click **Enable audio in this window**;
+set volume or mute, then try **Preview success** and **Preview failure**.
+Firefox may require an explicit gesture or a change to the site's autoplay
+setting. The status explains whether audio is ready, blocked or unavailable.
+No browser notification permission is needed.
+
+Run alerts follow the **selected attempt**, including after a rerun has
+started. PR alerts follow the PR's **current head and its complete verified
+check/status inventory**, not merge/closure and not just the displayed rows.
+Unknown/ambiguous PR associations are disabled with an explanation while a
+bounded lookup resolves them. Missing API permissions, required checks which
+have not appeared, incomplete pages and dormant queued check suites remain
+pending/indeterminate; they never produce a successful chime.
+
+Completion history records whether playback was pending, attempted, confirmed
+by the browser, blocked, muted or too old to play. Multiple windows share one
+server claim; simultaneous run/PR events are combined into one sound while
+retaining both records. A browser cannot guarantee audible delivery when it
+is closed, suspended, blocked or its speakers are muted.
+
+See [Completion alerts: semantics, limits and owner evaluation](docs/COMPLETION_ALERTS.md)
+for read-only token permissions, exact-attempt behavior, recovery and tests.
+
 ## Run locally
 
     git clone https://github.com/techrote/CISmonWEB.git
@@ -173,9 +213,17 @@ Optional environment variables:
 
 ## Local data
 
-CISmonWEB writes config.json and history.jsonl under ~/.cismonweb by default.
+CISmonWEB writes config.json, history.jsonl and, after the first pin/notification
+change, interactions.json under ~/.cismonweb by default.
 
 config.json is written with user-only file permissions where the host filesystem supports them. history.jsonl contains timing metadata, not Actions log content.
+
+interactions.json is a separate, versioned atomic store for scoped pins,
+completion subscriptions, sound preferences and bounded notification history.
+It contains no GitHub token or workflow logs. Existing configuration/profile
+and timing-history files are not migrated or rewritten by these features.
+Recovery and delivery writes use the same private-file permissions and
+serialized temporary-file replacement pattern as configuration saves.
 
 A timing baseline is keyed by repository, workflow ID, event, and optional job/step names. Only successful observations contribute to expected-duration baselines, matching the firmware project.
 
