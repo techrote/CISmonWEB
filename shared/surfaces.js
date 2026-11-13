@@ -519,20 +519,38 @@ export function filterRows(rows, surface) {
   });
 }
 
+// Pin order is projected for a single surface/pane, never persisted onto
+// provider rows or treated as manual-watch/attention state.
+export function applyScopedPins(rows, pins = [], scope = {}) {
+  const applicable = pins.filter(pin => pin.scope?.surfaceId === scope.surfaceId &&
+    (pin.scope?.paneId || "main") === (scope.paneId || "main"));
+  const key = value => value.repository.toLowerCase() + "#" + value.runId + "@" + (value.runAttempt || 1);
+  const byRun = new Map(applicable.map(pin => [key(pin), pin]));
+  return rows.map(row => {
+    const pin = byRun.get(key(row));
+    return pin ? { ...row, pinOrder: Number(pin.order) || 0, pinId: pin.id,
+      pinStatus: pin.status, pinReason: pin.reason || "" } : row;
+  });
+}
+export function prioritizePinnedRows(rows) {
+  const pinned = rows.filter(row => Number.isFinite(row.pinOrder));
+  if (!pinned.length) return [...rows];
+  pinned.sort((a, b) => a.pinOrder - b.pinOrder);
+  return [...pinned, ...rows.filter(row => !Number.isFinite(row.pinOrder))];
+}
 export function sortRows(rows, surface) {
   const sorted = [...rows];
-  if (surface.sort === "priority") return sorted;
-  if (surface.sort === "elapsed") return sorted.sort((a, b) => (b.elapsedMs || 0) - (a.elapsedMs || 0));
-  if (surface.sort === "repository") return sorted.sort((a, b) =>
+  if (surface.sort === "elapsed") sorted.sort((a, b) => (b.elapsedMs || 0) - (a.elapsedMs || 0));
+  if (surface.sort === "repository") sorted.sort((a, b) =>
     String(a.repository).localeCompare(String(b.repository)) ||
     String(a.workflow).localeCompare(String(b.workflow))
   );
-  if (surface.sort === "remaining") return sorted.sort((a, b) => {
+  if (surface.sort === "remaining") sorted.sort((a, b) => {
     const ar = a.estimatedRemainingMs || Number.MAX_SAFE_INTEGER;
     const br = b.estimatedRemainingMs || Number.MAX_SAFE_INTEGER;
     return ar - br;
   });
-  return sorted;
+  return prioritizePinnedRows(sorted);
 }
 
 // Focus is an operational surface. Keep live runs first, manually watched
@@ -571,7 +589,7 @@ export function selectOperationalFocusRows(matchedRows, surface) {
   const live = ordered.filter(row =>
     row.state === "in_progress" || row.state === "queued");
   const terminal = ordered.filter(row => row.state === "completed");
-  const selected = live.slice(0, limit);
+  const selected = ordered.filter(row => Number.isFinite(row.pinOrder)).slice(0, limit);
   const seen = new Set(selected.map(row =>
     row.repository + "#" + row.runId + "@" + (row.runAttempt || 1)));
   const append = row => {
@@ -582,6 +600,8 @@ export function selectOperationalFocusRows(matchedRows, surface) {
     selected.push(row);
     return true;
   };
+
+  for (const row of live) append(row);
 
   // An explicitly watched historical attempt remains selectable even if a
   // newer successful attempt exists; never silently collapse manual watches.
@@ -619,19 +639,21 @@ export function applySurface(rows, surface) {
 export function groupRows(rows, surface) {
   const grouping = surface.groupBy === "none" && surface.layout === "lanes" ? "state" : surface.groupBy;
   if (grouping === "none") return [{ key: "all", label: "", rows }];
+  const pinned = prioritizePinnedRows(rows.filter(row => Number.isFinite(row.pinOrder)));
   const groups = new Map();
-  for (const row of rows) {
+  for (const row of rows.filter(row => !Number.isFinite(row.pinOrder))) {
     const key = grouping === "repository" ? row.repository :
       grouping === "attention" ? row.attention :
       row.state === "completed" ? row.conclusion : row.state;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(row);
   }
-  return [...groups.entries()].map(([key, values]) => ({
-    key,
-    label: String(key).replaceAll("_", " "),
-    rows: values
-  }));
+  return [
+    ...(pinned.length ? [{ key: "pinned", label: "Pinned in this view", rows: pinned }] : []),
+    ...[...groups.entries()].map(([key, values]) => ({
+      key, label: String(key).replaceAll("_", " "), rows: values
+    }))
+  ];
 }
 
 export const SURFACE_FIELDS = [...FIELDS];

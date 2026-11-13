@@ -13,7 +13,7 @@
       <div class="brand-mark" aria-hidden="true">CI</div>
       <div>
         <h1>CISmonWEB</h1>
-        <p>local CI attention monitor</p>
+        <p title="Right-click a run or press Shift+F10 for copy links, pins and completion alerts">local CI attention monitor · right-click runs</p>
       </div>
     </div>
 
@@ -30,6 +30,8 @@
     </div>
 
     <div class="toolbar">
+      <span id="notificationControls" class="notification-controls-host"></span>
+      <button type="button" class="button secondary" data-manage-pins>Manage pins</button>
       <button id="refreshButton" class="button secondary" type="button">Rescan</button>
       <button id="fullscreenButton" class="button secondary" type="button">Fullscreen</button>
       <button id="borderlessButton" class="button secondary" type="button">Surface only</button>
@@ -49,6 +51,11 @@
 
   <button id="kioskSurfaceButton" class="kiosk-surface-button" type="button" aria-label="Open surface settings">Surface</button>
 
+  <div class="minimal-interaction-controls">
+    <span id="minimalNotificationControls"></span>
+    <button type="button" class="minimal-pins-button" data-manage-pins aria-label="Manage pinned runs">Pins</button>
+  </div>
+
   <main id="main">
     <section id="syncBanner" class="sync-banner" role="status" hidden></section>
     <section id="errorBanner" class="error-banner" hidden></section>
@@ -62,6 +69,11 @@
       <p id="surfaceSummary">Attention-ranked CI activity.</p>
     </section>
 
+    <section id="workflowViewBanner" class="workflow-view-banner" hidden>
+      <span id="workflowViewLabel"></span>
+      <button id="clearWorkflowView" class="button secondary" type="button">Show all workflows</button>
+    </section>
+    <p id="pinVisibilityStatus" class="pin-visibility-status" role="status" hidden></p>
     <section id="dashboard" class="dashboard" aria-live="polite"></section>
 
     <section id="emptyState" class="empty-state" hidden>
@@ -74,6 +86,19 @@
       <button id="exitBorderlessButton" class="minimal-exit-button" type="button" hidden>Exit surface-only</button>
     </footer>
   </main>
+
+  <div id="interactionToast" class="interaction-toast" role="status" aria-live="polite" hidden></div>
+
+  <dialog id="pinsDialog" class="dialog pins-dialog">
+    <div class="dialog-shell">
+      <header class="dialog-header">
+        <div><span class="eyebrow">SCOPED PRESENTATION PINS</span><h2>Pinned runs</h2>
+          <p>Pins stay with their surface and pane. Explicit filters still apply. Watching and completion alerts are independent.</p></div>
+        <button class="icon-button" type="button" data-close="pinsDialog" aria-label="Close pinned runs">×</button>
+      </header>
+      <div id="pinsList" class="pins-list"></div>
+    </div>
+  </dialog>
 
   <dialog id="detailDialog" class="dialog detail-dialog">
     <div class="dialog-shell">

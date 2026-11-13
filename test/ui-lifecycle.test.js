@@ -4,6 +4,7 @@ import vm from "node:vm";
 import test from "node:test";
 import * as surfaces from "../shared/surfaces.js";
 import * as grid from "../shared/focus-grid.js";
+import * as interactions from "../shared/interactions.js";
 import * as workflowView from "../shared/workflow-view.js";
 import { isFunLayout } from "../shared/fun-core.js";
 
@@ -82,7 +83,7 @@ function app(request) {
   });
   const location = { href: "http://127.0.0.1:8787/" };
   const context = vm.createContext({
-    ...surfaces, ...grid, ...workflowView, isFunLayout, document, location, URL,
+    ...surfaces, ...grid, ...workflowView, ...interactions, isFunLayout, document, location, URL,
     history: { replaceState(_state, _title, url) { location.href = String(url); } },
     window: { location }, structuredClone,
     createFocusGrid: () => new Element(),
@@ -326,4 +327,73 @@ test("Configure distinguishes environment-only and separately stored credentials
       ? /A separate token is also stored locally/ : /No token is stored locally/);
     assert.match(label, /does not change the environment token/);
   }
+});
+
+test("shared context actions send exact scope and attempt without modifying display configuration", async () => {
+  const requests = [];
+  const ui = app(async (url, options) => {
+    requests.push({ url, body: JSON.parse(options.body) });
+    return { revision: 2, pins: [], subscriptions: [], events: [], settings: {} };
+  });
+  const before = ui.run("JSON.stringify(config)");
+  await ui.run(`selectRunAction("pin", {
+    row: { repository: "owner/repo", runId: 71, runAttempt: 4 },
+    scope: { surfaceId: "focus", paneId: "dual:1" }, links: {}, subscriptions: {}, association: {}
+  })`);
+  assert.deepEqual(requests, [{ url: "/api/interactions", body: {
+    action: "pin", repository: "owner/repo", runId: 71, runAttempt: 4,
+    scope: { surfaceId: "focus", paneId: "dual:1" }
+  } }]);
+  assert.equal(ui.run("JSON.stringify(config)"), before);
+  assert.equal(ui.run("contextActionPending"), 0);
+});
+
+test("context cancellation carries the observed subscription generation against stale window races", async () => {
+  let input;
+  const ui = app(async (_url, options) => {
+    input = JSON.parse(options.body);
+    return { revision: 3, pins: [], subscriptions: [], events: [], settings: {} };
+  });
+  await ui.run(`selectRunAction("cancel-pr", {
+    row: { repository: "owner/repo", runId: 72, runAttempt: 2 },
+    scope: { surfaceId: "focus", paneId: "main" }, links: {},
+    subscriptions: { pr: { id: "pr:owner/repo#33", generation: "generation-2" } },
+    association: { status: "resolved", number: 33 }
+  })`);
+  assert.deepEqual(input, { action: "cancel-pr", repository: "owner/repo", runId: 72,
+    runAttempt: 2, prNumber: 33, id: "pr:owner/repo#33", generation: "generation-2" });
+});
+
+test("delayed poll snapshots cannot erase a newer persisted pin or subscription update", () => {
+  const ui = app(async () => ({}));
+  ui.run(`acceptInteractions({ revision: 5, pins: [], subscriptions: [{ id: "active", status: "armed" }], events: [], settings: {} }, false)`);
+  ui.run(`renderDashboard({ rows: [], interactions: { revision: 4, pins: [], subscriptions: [], events: [], settings: {} } })`);
+  assert.equal(ui.run("interactionState.revision"), 5);
+  assert.equal(ui.run("latestState.interactions.subscriptions[0].id"), "active");
+});
+
+test("a rejected context operation releases rendering and retains accepted server state", async () => {
+  const ui = app(async () => ({ httpStatus: 409, body: { error: "run attempt changed" } }));
+  await assert.rejects(ui.run(`selectRunAction("arm-run", {
+    row: { repository: "owner/repo", runId: 72, runAttempt: 2 },
+    scope: { surfaceId: "focus", paneId: "main" }, links: {}, subscriptions: {}, association: {}
+  })`), /attempt changed/);
+  assert.equal(ui.run("contextActionPending"), 0);
+  assert.equal(ui.run("interactionState.subscriptions.length"), 0);
+});
+
+test("workflow-history uses exact workflow identity and remains a temporary display view", async () => {
+  const ui = app(async () => assert.fail("Viewing a workflow must not write monitoring configuration"));
+  const before = ui.run("JSON.stringify(config)");
+  await ui.run(`selectRunAction("workflow-history", {
+    row: { repository: "owner/repo", runId: 72, runAttempt: 2, workflowId: 99, workflow: "Build" },
+    scope: { surfaceId: "focus", paneId: "main" }, links: {}, subscriptions: {}, association: {}
+  })`);
+  const ids = ui.run(`visibleWorkflowRows([
+    { repository: "owner/repo", workflowId: 99, workflow: "Build", runId: 1 },
+    { repository: "owner/repo", workflowId: 98, workflow: "Build", runId: 2 },
+    { repository: "other/repo", workflowId: 99, workflow: "Build", runId: 3 }
+  ]).map(row => row.runId)`);
+  assert.deepEqual([...ids], [1]);
+  assert.equal(ui.run("JSON.stringify(config)"), before);
 });

@@ -43,7 +43,7 @@ function stateClass(row) {
     row.attention === "suspicious" ? "suspicious" : "terminal";
 }
 
-function makeRow(row, mode, openRun, formatDuration, surface, onFocus = null) {
+function makeRow(row, mode, openRun, formatDuration, surface, onFocus = null, onRow = null) {
   const button = el("button", "living-run living-run-" + mode + " living-state-" + stateClass(row));
   button.type = "button";
   button.dataset.runKey = runIdentity(row);
@@ -84,14 +84,16 @@ function makeRow(row, mode, openRun, formatDuration, surface, onFocus = null) {
   button.append(repo, title, lower);
   button.addEventListener("click", () => openRun(row.repository, row.runId));
   if (onFocus) button.addEventListener("pointerenter", () => onFocus(row));
+  onRow?.(button, row);
   return button;
 }
 
-function renderLaneList(rows, target, openRun, formatDuration, surface) {
+function renderLaneList(rows, target, openRun, formatDuration, surface, onRow) {
   target.replaceChildren();
-  const groups = surface.groupBy === "repository" || surface.groupBy === "none" ?
+  const hasPins = rows.some(row => Number.isFinite(row.pinOrder));
+  const groups = !hasPins && (surface.groupBy === "repository" || surface.groupBy === "none") ?
     groupFunRepositories(rows).map(g => ({ title: g.repository, rows: g.rows, counts: g.counts })) :
-    groupRows(rows, surface).map(g => ({
+    groupRows(rows, hasPins && surface.groupBy === "none" ? { ...surface, groupBy: "repository" } : surface).map(g => ({
       title: g.label, rows: g.rows, counts: summarizeFunRows(g.rows)
     }));
   for (const group of groups) {
@@ -107,14 +109,14 @@ function renderLaneList(rows, target, openRun, formatDuration, surface) {
     section.append(heading);
     const list = el("div", "living-repo-items");
     for (const row of group.rows) {
-      list.append(makeRow(row, "lane", openRun, formatDuration, surface));
+      list.append(makeRow(row, "lane", openRun, formatDuration, surface, null, onRow));
     }
     section.append(list);
     target.append(section);
   }
 }
 
-function renderRunList(rows, layout, target, openRun, formatDuration, surface, onFocus = null) {
+function renderRunList(rows, layout, target, openRun, formatDuration, surface, onFocus = null, onRow = null) {
   target.replaceChildren();
   const groups = groupRows(rows, surface);
   for (const group of groups) {
@@ -124,7 +126,7 @@ function renderRunList(rows, layout, target, openRun, formatDuration, surface, o
     }
     const inside = group.label ? el("div", "living-group-cards") : target;
     for (const row of group.rows) {
-      inside.append(makeRow(row, layout, openRun, formatDuration, surface, onFocus));
+      inside.append(makeRow(row, layout, openRun, formatDuration, surface, onFocus, onRow));
     }
     if (group.label) {
       wrapper.append(inside);
@@ -133,7 +135,7 @@ function renderRunList(rows, layout, target, openRun, formatDuration, surface, o
   }
 }
 
-export function createFunView(surface, openRun, formatDuration) {
+export function createFunView(surface, openRun, formatDuration, onRow = null) {
   const mode = surface.layout;
   const root = el("section", "living-surface living-" + mode);
   root.dataset.mode = mode;
@@ -264,10 +266,10 @@ export function createFunView(surface, openRun, formatDuration) {
     );
 
     if (mode === "lanes_plus") {
-      renderLaneList(rows, list, openRun, formatDuration, latestSurface);
+      renderLaneList(rows, list, openRun, formatDuration, latestSurface, onRow);
     } else {
       renderRunList(rows, mode, list, openRun, formatDuration, latestSurface,
-        mode === "hungry_margins" ? row => engine.focus(row) : null);
+        mode === "hungry_margins" ? row => engine.focus(row) : null, onRow);
     }
 
     if (!rows.length) {

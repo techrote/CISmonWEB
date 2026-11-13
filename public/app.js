@@ -1,3 +1,6 @@
+import { createContextMenu, copyText } from "/context-menu.js";
+import { createNotifications } from "/notifications.js";
+import { runKey, prKey, pinScopeKey, ciUrl, prAssociation, commitUrl } from "/interactions.js";
 import { isFunLayout } from "/fun-core.js";
 import { workflowStatusPresentation, summarizeProviderRows, uniqueWorkflowRows, hiddenQueuedExecutingRows } from "/workflow-view.js";
 import { createFocusGrid } from "/focus-grid-view.js";
@@ -11,6 +14,7 @@ import {
   groupRows,
   sortRows,
   selectOperationalFocusRows,
+  applyScopedPins,
   normalizeSurface,
   normalizeSurfaces
 } from "/surfaces.js";
@@ -79,6 +83,13 @@ let savedActiveSurfaceRevision = 0;
 let editingPaneIndex = 0;
 let minimalOnly = false;
 let localSurfaceOverride = null;
+let interactionState = { revision: -1, pins: [], subscriptions: [], events: [], settings: {} };
+let contextMenu = null;
+let notifications = null;
+let contextActionPending = 0;
+let workflowViewFilter = null;
+let toastTimer = null;
+const associationRequests = new Map();
 
 function node(tag, className, text) {
   const el = document.createElement(tag);
@@ -112,6 +123,212 @@ async function api(path, options = {}) {
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || ("HTTP " + response.status));
   return data;
+}
+
+function runScope(surface = activeSurface(), paneIndex = -1, paneKind = "dual") {
+  return { surfaceId: surface.id, paneId: paneIndex < 0 ? "main" : paneKind + ":" + paneIndex };
+}
+function armedSubscriptions() {
+  return (interactionState.subscriptions || []).filter(sub => sub.status === "armed");
+}
+function subscriptionsFor(row) {
+  const association = prAssociation(row);
+  const armed = armedSubscriptions();
+  return {
+    run: armed.find(sub => sub.type === "run" && runKey(sub) === runKey(row)),
+    pr: armed.find(sub => sub.type === "pr" &&
+      (association.status === "resolved"
+        ? prKey(sub.repository, sub.prNumber) === prKey(row.repository, association.number)
+        : sub.runId === row.runId && sub.runAttempt === (row.runAttempt || 1) &&
+          sub.repository.toLowerCase() === row.repository.toLowerCase()))
+  };
+}
+function scopedPin(row, scope) {
+  return (interactionState.pins || []).find(pin =>
+    pinScopeKey(pin.scope) === pinScopeKey(scope) && runKey(pin) === runKey(row));
+}
+function decorateRun(element, row, scope) {
+  element.dataset.runContext = "true";
+  element.dataset.runKey = runKey(row);
+  element.dataset.runScope = pinScopeKey(scope);
+  element.dataset.surfaceId = scope.surfaceId;
+  element.dataset.paneId = scope.paneId;
+  element.setAttribute("aria-keyshortcuts", "Shift+F10");
+  const armed = subscriptionsFor(row);
+  const pinned = scopedPin(row, scope);
+  const labels = [pinned ? "Pinned in this view" : "", armed.run ? "Run completion alert armed" : "",
+    armed.pr ? "PR checks completion alert armed" : "", row.providerUnavailable ? "Provider unavailable" : ""].filter(Boolean);
+  element.title = (element.title ? element.title + " · " : "") + labels.join(" · ") +
+    (labels.length ? " · " : "") + "Right-click or Shift+F10 for run actions";
+  element.classList.toggle("run-is-pinned", Boolean(pinned));
+  element.classList.toggle("run-alert-armed", Boolean(armed.run || armed.pr));
+  if (labels.length) {
+    const marker = node("span", "run-action-marker", (pinned ? "◆" : "") + (armed.run || armed.pr ? "♬" : ""));
+    marker.setAttribute("aria-hidden", "true");
+    marker.title = labels.join(" · ");
+    const host = element.tagName === "TR" ? element.querySelector("td") : element;
+    if (host) { host.classList.add("run-marker-host"); host.append(marker); }
+  }
+}
+function contextFor(element) {
+  const row = (latestState?.rows || []).find(item => runKey(item) === element.dataset.runKey);
+  if (!row) return null;
+  const scope = { surfaceId: element.dataset.surfaceId, paneId: element.dataset.paneId };
+  const association = prAssociation(row);
+  const subscriptions = subscriptionsFor(row);
+  return {
+    row, scope, association, subscriptions,
+    pinned: scopedPin(row, scope), runArmed: subscriptions.run, prArmed: subscriptions.pr,
+    links: { ci: ciUrl(row), pr: association.url, commit: commitUrl(row),
+      sha: /^[0-9a-f]{40}$/i.test(row.headSha || "") ? row.headSha : "" }
+  };
+}
+function showToast(message, error = false) {
+  const toast = $("#interactionToast");
+  toast.textContent = message;
+  toast.dataset.kind = error ? "error" : "success";
+  toast.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { toast.hidden = true; }, error ? 6500 : 3200);
+}
+function acceptInteractions(next, redraw = true) {
+  if (!next || Number(next.revision) < Number(interactionState.revision)) return;
+  interactionState = next;
+  if (latestState) latestState = { ...latestState, interactions: next };
+  notifications?.update(next);
+  if (redraw && latestState) renderDashboard(latestState);
+  if ($("#pinsDialog").open) renderPins();
+}
+async function interactionRequest(input) {
+  const next = await api("/api/interactions", { method: "POST", body: JSON.stringify(input) });
+  acceptInteractions(next);
+  return next;
+}
+async function resolveAssociation(context) {
+  if (context.association.status !== "unknown") return;
+  const key = runKey(context.row);
+  if (Date.now() - (associationRequests.get(key) || 0) < 60000) return;
+  associationRequests.set(key, Date.now());
+  const { repository, runId, runAttempt = 1 } = context.row;
+  try {
+    await interactionRequest({ action: "resolve-pr", repository, runId, runAttempt });
+    await pollState();
+  } catch (error) { showToast("PR lookup unavailable: " + error.message, true); }
+}
+function visibleWorkflowRows(rows) {
+  if (!workflowViewFilter) return rows;
+  return rows.filter(row => row.repository === workflowViewFilter.repository &&
+    (workflowViewFilter.workflowId ? row.workflowId === workflowViewFilter.workflowId :
+      row.workflow === workflowViewFilter.workflow));
+}
+async function selectRunAction(action, context) {
+  const { row, scope, links, subscriptions, association } = context;
+  const identity = { repository: row.repository, runId: row.runId, runAttempt: row.runAttempt || 1 };
+  // This call remains inside the menu's click/keyboard gesture, before any
+  // fetch, so Firefox can resume an AudioContext when sound is enabled.
+  if (action === "arm-run" || action === "arm-pr") void notifications?.enableFromGesture();
+  if (action.startsWith("open-")) {
+    const href = action === "open-ci" ? links.ci : action === "open-pr" ? links.pr : links.commit;
+    if (href) window.open(href, "_blank", "noopener,noreferrer");
+    return;
+  }
+  if (action === "workflow-history") {
+    workflowViewFilter = { repository: row.repository, workflowId: row.workflowId, workflow: row.workflow };
+    renderDashboard(latestState);
+    return;
+  }
+  contextActionPending++;
+  try {
+    if (action.startsWith("copy-")) {
+      try {
+        await copyText(action === "copy-ci" ? links.ci : action === "copy-pr" ? links.pr : links.sha);
+        showToast("Copied");
+      } catch (error) { showToast("Copy failed: " + error.message, true); }
+    } else if (action === "watch" || action === "acknowledge") {
+      await api(action === "watch" ? "/api/watch" : "/api/acknowledge", {
+        method: "POST", body: JSON.stringify({ ...identity, ...(action === "watch" ? { watched: !row.manualWatch } : {}) })
+      });
+      await pollState();
+    } else {
+      const subscription = action.endsWith("pr") ? subscriptions.pr : subscriptions.run;
+      await interactionRequest({ action, ...identity,
+        ...(action === "pin" || action === "unpin" ? { scope } : {}),
+        ...(association.number ? { prNumber: association.number } : {}),
+        ...(action.startsWith("cancel-") && subscription ? { generation: subscription.generation, id: subscription.id } : {})
+      });
+      if (action.startsWith("arm-")) showToast("Alert armed; provider verification pending." +
+        (!interactionState.settings?.soundEnabled ? " Sound is off — open Notifications to enable it." : ""));
+      else if (action.startsWith("cancel-")) showToast("Alert cancelled");
+      else showToast(action === "pin" ? "Pinned in this view" : "Unpinned from this view");
+    }
+  } finally {
+    contextActionPending--;
+    if (latestState) renderDashboard(latestState);
+  }
+}
+function pinsForScope(scope) {
+  return (interactionState.pins || []).filter(pin => pinScopeKey(pin.scope) === pinScopeKey(scope));
+}
+function renderPins() {
+  const list = $("#pinsList");
+  list.replaceChildren();
+  for (const pin of interactionState.pins || []) {
+    const surface = config?.surfaces.find(item => item.id === pin.scope.surfaceId);
+    const display = node("div", "pin-management-row");
+    const identity = node("div");
+    identity.append(node("strong", "", pin.repository + " · run " + pin.runId + " · attempt " + pin.runAttempt));
+    const reason = !surface ? "Surface removed; retained until unpinned." : pin.reason || pin.status || "Pinned";
+    identity.append(node("small", "", (surface?.name || pin.scope.surfaceId) + " / " + pin.scope.paneId + " · " + reason));
+    const remove = node("button", "button secondary", "Unpin");
+    remove.type = "button";
+    remove.addEventListener("click", async () => {
+      remove.disabled = true;
+      try { await interactionRequest({ action: "unpin", repository: pin.repository,
+        runId: pin.runId, runAttempt: pin.runAttempt, scope: pin.scope }); }
+      catch (error) { remove.disabled = false; showToast(error.message, true); }
+    });
+    display.append(identity, remove);
+    list.append(display);
+  }
+  if (!list.children.length) list.append(node("p", "", "No pinned runs. Right-click a run and choose Pin to top."));
+}
+function renderViewStatus(allRows, surface) {
+  const banner = $("#workflowViewBanner");
+  banner.hidden = !workflowViewFilter;
+  if (workflowViewFilter) $("#workflowViewLabel").textContent =
+    "Tracked runs of " + workflowViewFilter.repository + " / " + workflowViewFilter.workflow +
+    ". This temporary view preserves your surface filters.";
+  const scopes = surface.layout === "focus_dual" ? surface.dualPanes.map((pane, index) => ({ pane, scope: runScope(surface, index, "dual") })) :
+    surface.layout === "focus_vert" ? surface.vertPanes.map((pane, index) => ({ pane, scope: runScope(surface, index, "vert") })) :
+    [{ pane: surface, scope: runScope(surface) }];
+  let hidden = 0, unavailable = 0;
+  for (const { pane, scope } of scopes) {
+    const visible = new Set(filterRows(visibleWorkflowRows(allRows), { ...surface, ...pane }).map(runKey));
+    for (const pin of pinsForScope(scope)) {
+      if (pin.status === "unavailable" || pin.status === "restoring") unavailable++;
+      else if (!visible.has(runKey(pin))) hidden++;
+    }
+  }
+  const note = $("#pinVisibilityStatus");
+  note.hidden = !hidden && !unavailable;
+  note.textContent = (hidden ? hidden + " pins hidden by this view's filters. " : "") +
+    (unavailable ? unavailable + " pins awaiting provider verification or unavailable. " : "") +
+    "Manage pins to inspect or remove them.";
+}
+function setupRunInteractions() {
+  notifications = createNotifications({ api, onChange: next => acceptInteractions(next) });
+  $("#notificationControls").append(notifications.createButton());
+  $("#minimalNotificationControls").append(notifications.createButton({ compact: true }));
+  contextMenu = createContextMenu({ root: elements.dashboard, resolveTarget: contextFor,
+    onSelect: selectRunAction, onOpen: resolveAssociation,
+    onError: error => showToast(error.message, true) });
+  $("#clearWorkflowView").addEventListener("click", () => {
+    workflowViewFilter = null;
+    if (latestState) renderDashboard(latestState);
+  });
+  for (const button of $$("[data-manage-pins]")) button.addEventListener("click", () => {
+    renderPins(); $("#pinsDialog").showModal();
+  });
 }
 
 // Reads and writes share one queue: a delayed Configure response or surface
@@ -218,6 +435,7 @@ function renderRunCard(row, surface) {
     if (sub) cell.append(node("span", "metric-sub", sub));
     card.append(cell);
   }
+  decorateRun(card, row, runScope(surface));
   return card;
 }
 
@@ -259,6 +477,7 @@ function gridCallbacks(surface, paneIndex = -1, paneKind = "dual") {
   const key = surface.id + ":" + paneKind + ":" + paneIndex;
   return {
     onOpen: openDetail,
+    onRow: (element, row) => decorateRun(element, row, runScope(surface, paneIndex, paneKind)),
     onInteracting: value => { gridInteracting = value; },
     getScroll: () => gridScroll.get(key) || 0,
     onScroll: value => gridScroll.set(key, value),
@@ -298,7 +517,7 @@ function gridCallbacks(surface, paneIndex = -1, paneKind = "dual") {
   };
 }
 
-function focusDualRows(all, pane, parent, index) {
+function focusDualRows(all, pane, parent, index, paneKind = "dual") {
   const filters = {
     ...parent, ...pane,
     // The pane controls its own status and attention filters.
@@ -306,7 +525,8 @@ function focusDualRows(all, pane, parent, index) {
     workflowPatterns: pane.workflowPatterns,
     eventPatterns: pane.eventPatterns
   };
-  return sortRows(filterRows(all, filters), { ...filters, sort: "priority" })
+  const scoped = applyScopedPins(visibleWorkflowRows(all), interactionState.pins, runScope(parent, index, paneKind));
+  return sortRows(filterRows(scoped, filters), { ...filters, sort: "priority" })
     .slice(0, pane.maxItems);
 }
 
@@ -346,7 +566,7 @@ function renderFocusVert(all, surface) {
     section.dataset.density = pane.density || surface.density;
     section.style.height = pane.heightValue + pane.heightUnit;
     section.setAttribute("aria-label", pane.name);
-    const selected = focusDualRows(all, pane, surface, index);
+    const selected = focusDualRows(all, pane, surface, index, "vert");
     visible += selected.length;
     displayed.push(...selected);
     const title = node("header", "focus-dual-header focus-vert-header");
@@ -402,6 +622,7 @@ function renderTable(rows, surface) {
       }
       tr.append(cell);
     }
+    decorateRun(tr, row, runScope(surface));
     tbody.append(tr);
   }
   table.append(tbody);
@@ -430,12 +651,19 @@ function renderGroups(rows, surface) {
 }
 
 function renderDashboard(state) {
-  latestState = state;
+  if (state.interactions) acceptInteractions(state.interactions, false);
+  latestState = { ...state, interactions: interactionState };
+  notifications?.update(interactionState);
   const surface = activeSurface();
+  if (contextActionPending) return;
+  const focusedRun = document.activeElement?.closest?.("[data-run-context]");
+  const focusedIdentity = focusedRun ? { key: focusedRun.dataset.runKey, scope: focusedRun.dataset.runScope } : null;
   // Polling may continue while a user drags a resize divider. Do not destroy
   // the captured DOM node until the pointer is released.
   if (gridInteracting && ["rows", "table", "focus_dual", "focus_vert"].includes(surface.layout)) return;
-  const matchedRows = filterRows(state.rows || [], surface);
+  const scoped = applyScopedPins(visibleWorkflowRows(state.rows || []), interactionState.pins, runScope(surface));
+  const matchedRows = filterRows(scoped, surface);
+  renderViewStatus(state.rows || [], surface);
   const focusSelection = selectOperationalFocusRows(matchedRows, surface);
   const rows = focusSelection.rows;
   let displayedRows = rows;
@@ -488,7 +716,8 @@ function renderDashboard(state) {
     if (!funView || funView.id !== surface.id || funView.layout !== surface.layout) {
       funView?.destroy();
       elements.dashboard.replaceChildren();
-      funView = createFunView(surface, openDetail, formatDuration);
+      funView = createFunView(surface, openDetail, formatDuration,
+        (element, row) => decorateRun(element, row, runScope(surface)));
       elements.dashboard.append(funView.root);
       funView.mount();
     }
@@ -551,6 +780,12 @@ function renderDashboard(state) {
     counts.alerts + " action required";
   elements.minimalSummary.textContent = elements.surfaceSummary.textContent;
   elements.minimalSummary.title = elements.surfaceSummary.title;
+  contextMenu?.reconcile();
+  if (focusedIdentity && !contextMenu?.isOpen()) {
+    const replacement = [...elements.dashboard.querySelectorAll("[data-run-context]")].find(element =>
+      element.dataset.runKey === focusedIdentity.key && element.dataset.runScope === focusedIdentity.scope);
+    replacement?.focus({ preventScroll: true });
+  }
 }
 
 function applySurfaceVisuals() {
@@ -586,6 +821,8 @@ function renderSurfaceTabs() {
 
 async function switchSurface(surfaceId) {
   if (!config.surfaces.some((surface) => surface.id === surfaceId)) return;
+  contextMenu?.close(false);
+  workflowViewFilter = null;
   localSurfaceOverride = surfaceId;
   if (!minimalOnly) {
     activeSurfaceRevision += 1;
@@ -1491,6 +1728,7 @@ for (const button of $$("[data-close]")) {
 elements.detailDialog.addEventListener("close", () => { selectedRun = null; });
 
 async function boot() {
+  setupRunInteractions();
   fillSortOptions($("#surfaceGridSort"));
   fillSortOptions($("#dualPaneSort"));
   for (const id of ["surfaceGridSecondarySort", "dualPaneSecondarySort"]) {
