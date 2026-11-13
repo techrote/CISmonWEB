@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   GRID_FIELDS, GRID_MIN_WIDTH, GRID_SHORT_LABEL, formatGridDuration,
-  normalizeGridWidths, sortGridRows
+  normalizeGridWidths, resolvePaneDuration, sortGridRows
 } from "../shared/focus-grid.js";
 import { normalizeSurface } from "../shared/surfaces.js";
 
@@ -45,13 +45,51 @@ test("surface and panes persist independent duration preferences, with legacy de
   assert.equal(surface.durationUnit, "h");
   assert.equal(surface.durationDecimals, 2);
   assert.equal(surface.dualPanes[0].durationMode, "unitless_hours");
-  assert.equal(surface.dualPanes[1].durationMode, "decimal");
-  assert.equal(surface.dualPanes[1].durationUnit, "h");
-  assert.equal(surface.dualPanes[1].durationDecimals, 2);
+  assert.equal(surface.dualPanes[1].durationMode, "inherit");
+  assert.equal(surface.dualPanes[1].durationOverrideExplicit, false);
+  assert.deepEqual(resolvePaneDuration(surface, surface.dualPanes[1]),
+    { durationMode: "decimal", durationUnit: "h", durationDecimals: 2 });
   const legacy = normalizeSurface({ id: "older", durationMode: "bad", durationUnit: "bad", durationDecimals: 9 });
   assert.equal(legacy.durationMode, "compact");
   assert.equal(legacy.durationUnit, "auto");
   assert.equal(legacy.durationDecimals, 1);
+});
+
+test("pane migration, explicit compact override and parent changes are stable", () => {
+  const original = normalizeSurface({
+    layout: "focus_dual", durationMode: "compact", durationUnit: "auto",
+    durationDecimals: 1,
+    dualPanes: [
+      { durationMode: "compact" }, // old normalized default, not an override
+      { durationMode: "decimal", durationUnit: "m", durationDecimals: 2 }
+    ]
+  });
+  assert.equal(original.dualPanes[0].durationMode, "inherit");
+  assert.equal(original.dualPanes[1].durationMode, "decimal");
+  const changed = normalizeSurface({
+    ...original, durationMode: "unitless_hours", durationDecimals: 2
+  });
+  assert.equal(resolvePaneDuration(changed, changed.dualPanes[0]).durationMode,
+    "unitless_hours");
+  assert.deepEqual(resolvePaneDuration(changed, changed.dualPanes[1]),
+    { durationMode: "decimal", durationUnit: "m", durationDecimals: 2 });
+  const pinned = normalizeSurface({
+    ...changed,
+    dualPanes: [
+      { ...changed.dualPanes[0], durationMode: "compact", durationOverrideExplicit: true },
+      changed.dualPanes[1]
+    ]
+  });
+  assert.equal(pinned.dualPanes[0].durationMode, "compact");
+  assert.equal(pinned.dualPanes[0].durationOverrideExplicit, true);
+  assert.equal(resolvePaneDuration(pinned, pinned.dualPanes[0]).durationMode, "compact");
+  assert.equal(normalizeSurface(pinned).dualPanes[0].durationMode, "compact");
+  const vertical = normalizeSurface({
+    layout: "focus_vert", durationMode: "decimal",
+    vertCount: 3, vertPanes: [{ durationMode: "compact" }, {}, {}]
+  });
+  assert.deepEqual(vertical.vertPanes.map(p => resolvePaneDuration(vertical, p).durationMode),
+    ["decimal", "decimal", "decimal"]);
 });
 
 test("five-character column labels and reduced minimum width do not alter raw sorting", () => {
