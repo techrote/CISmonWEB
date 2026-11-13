@@ -118,7 +118,11 @@ export function formatGridDuration(ms, options = {}, allowZero = false) {
       (value >= 3600000 ? "h" : value >= 60000 ? "m" : "s") :
       normalizeDurationUnit(options.durationUnit);
   const milliseconds = { s: 1000, m: 60000, h: 3600000, d: 86400000 }[unit];
-  const numeric = (value / milliseconds).toFixed(normalizeDurationDecimals(options.durationDecimals));
+  // Round the integer-millisecond ratio BEFORE decimal formatting: toFixed
+  // alone mis-rounds binary half-steps such as 4h33m = 4.55h to 4.5h.
+  const places = normalizeDurationDecimals(options.durationDecimals);
+  const factor = 10 ** places;
+  const numeric = (Math.round(value * factor / milliseconds) / factor).toFixed(places);
   return numeric + (options.durationMode === "unitless_hours" ? "" : unit);
 }
 export function normalizeGridDateFormat(value) {
