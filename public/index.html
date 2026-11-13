@@ -372,6 +372,38 @@
         </section>
 
 
+        <section class="form-section">
+          <h3>Duration presentation</h3>
+          <div class="form-grid three">
+            <label class="field">
+              <span>Time format</span>
+              <select id="surfaceDurationMode">
+                <option value="compact">Compact (4h33m)</option>
+                <option value="decimal">Decimal with units (4.6h)</option>
+                <option value="unitless_hours">Unitless decimal hours (4.6)</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Decimal units</span>
+              <select id="surfaceDurationUnit">
+                <option value="auto">Automatic: h / m / s</option>
+                <option value="h">Hours (h)</option>
+                <option value="m">Minutes (m)</option>
+                <option value="s">Seconds (s)</option>
+                <option value="d">Days (d)</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Decimal places</span>
+              <select id="surfaceDurationDecimals">
+                <option value="1">1 (4.6h)</option>
+                <option value="2">2 (4.55h)</option>
+              </select>
+            </label>
+          </div>
+          <p class="surface-help">Applies to duration values, not date/time stamps or numeric sorting. Dual/Vert panes can override the surface setting.</p>
+        </section>
+
         <section class="form-section" id="focusGridSection">
           <h3>Focus grid · fields and dimensions</h3>
           <div class="form-grid three">
@@ -477,6 +509,24 @@
               <input id="dualPaneAddedDatePattern" maxlength="64" placeholder="YYYY-MM-DD HH:mm"></label>
             <label class="field"><span>UPDATED custom pattern</span>
               <input id="dualPaneUpdatedDatePattern" maxlength="64" placeholder="DD/MM/YYYY HH:mm:ss"></label>
+          </div>
+          <div class="form-grid three">
+            <label class="field"><span>Pane time format</span><select id="dualPaneDurationMode">
+              <option value="inherit">Inherit surface</option>
+              <option value="compact">Compact (4h33m)</option>
+              <option value="decimal">Decimal with units (4.6h)</option>
+              <option value="unitless_hours">Unitless decimal hours (4.6)</option>
+            </select></label>
+            <label class="field"><span>Pane decimal units</span><select id="dualPaneDurationUnit">
+              <option value="auto">Automatic: h / m / s</option>
+              <option value="h">Hours (h)</option>
+              <option value="m">Minutes (m)</option>
+              <option value="s">Seconds (s)</option>
+              <option value="d">Days (d)</option>
+            </select></label>
+            <label class="field"><span>Pane decimal places</span><select id="dualPaneDurationDecimals">
+              <option value="1">1</option><option value="2">2</option>
+            </select></label>
           </div>
           <div class="form-grid three" id="vertPaneHeightGroup" hidden>
             <label class="field"><span>Pane height mode</span>
