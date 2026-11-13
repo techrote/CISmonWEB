@@ -277,8 +277,8 @@ export class InteractionStore {
     });
   }
 
-  proofAfterArm(sub, evidence) {
-    return evidence.terminalTimeSource === "completed_at" && Number.isFinite(evidence.terminalTimeMs) &&
+  proofAfterArm(sub, evidence, sources = ["completed_at"]) {
+    return sources.includes(evidence.terminalTimeSource) && Number.isFinite(evidence.terminalTimeMs) &&
       evidence.terminalTimeMs > sub.armedAtMs && evidence.terminalTimeMs <= evidence.confirmedAtMs + 5000;
   }
 
@@ -352,6 +352,7 @@ export class InteractionStore {
         sub.headSha = headSha; sub.seenActive = false; sub.activeHeadSha = "";
         sub.lastActiveAtMs = 0; sub.signature = "";
         sub.relevantMergeSha = ""; sub.seenOpen = false;
+        sub.liveParents = [];
       }
       if (["open", "closed"].includes(evidence.prState)) sub.prState = evidence.prState;
       if (evidence.prState === "open") sub.seenOpen = true;
@@ -359,20 +360,36 @@ export class InteractionStore {
       if (SHA.test(evidence.mergeSha || "") && evidence.mergeSha.toLowerCase() !== headSha) {
         sub.relevantMergeSha = evidence.mergeSha.toLowerCase();
       }
+      if (Array.isArray(evidence.liveParents)) {
+        sub.liveParents = evidence.liveParents.filter(parent => parent &&
+          (parent.sha === headSha || parent.sha === sub.relevantMergeSha) &&
+          Number.isSafeInteger(parent.runId) && parent.runId > 0 &&
+          Number.isSafeInteger(parent.runAttempt) && parent.runAttempt > 0 &&
+          Number.isFinite(parent.updatedAtMs) && parent.updatedAtMs >= 0)
+          .slice(-64).map(parent => ({ sha: parent.sha, runId: parent.runId,
+            runAttempt: parent.runAttempt, updatedAtMs: parent.updatedAtMs }));
+      }
       sub.coverage = evidence.complete === true ? "complete" : "incomplete";
       if (!evidence.complete) { sub.phase = "indeterminate"; sub.reason ||= "Waiting for complete check and status coverage"; return; }
       if (!evidence.terminal) {
         sub.seenActive = true; sub.activeHeadSha = headSha; sub.lastActiveAtMs = evidence.confirmedAtMs;
         sub.phase = "monitoring"; sub.reason ||= "Current PR head still has pending checks or statuses"; return;
       }
-      if (!sub.seenActive && !this.proofAfterArm(sub, evidence)) {
-        if (evidence.settled) this.invalidateAlreadyComplete(sub, now);
-        else { sub.phase = "settling"; sub.reason = "Initial checks appear terminal; confirming coverage before deciding whether work completed after arming"; }
-        return;
-      }
       sub.signature = text(evidence.signature, 10000);
       if (!evidence.settled || !sub.signature || !OUTCOMES.has(evidence.outcome)) {
         sub.phase = "settling"; sub.reason ||= "Confirming a stable, complete check set before notification"; return;
+      }
+      const postArmProof = this.proofAfterArm(sub, evidence,
+        ["completed_at", "status_created_at", "witnessed_parent_updated_at"]);
+      if (!postArmProof) {
+        if (evidence.terminalTimingComplete === true && Number.isFinite(evidence.terminalTimeMs) &&
+            evidence.terminalTimeMs > 0 && evidence.terminalTimeMs < sub.armedAtMs - 1000) {
+          this.invalidateAlreadyComplete(sub, now);
+        } else {
+          sub.phase = "indeterminate";
+          sub.reason = "Final checks are stable, but their completion timing is missing, overlapping arming, or cannot establish post-arm completion across parents/statuses; no retrospective chime.";
+        }
+        return;
       }
       this.finish(state, sub, evidence.outcome, evidence.reason || "Verified PR check set completed", evidence.confirmedAtMs,
         "pr:" + prKey(sub.repository, sub.prNumber) + "@" + headSha + ":" + evidence.outcome + ":" + fingerprint(sub.signature));

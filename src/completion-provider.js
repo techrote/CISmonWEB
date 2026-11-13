@@ -18,6 +18,7 @@ const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const FAILURE = new Set(["failure", "timed_out", "action_required", "startup_failure", "stale"]);
 const NEUTRAL = new Set(["neutral", "skipped"]);
 const LIVE = new Set(["queued", "in_progress", "waiting", "requested", "pending"]);
+const MAX_PARENT_WITNESSES = 64;
 
 const attemptKey = run => `${run.repository.toLowerCase()}#${run.runId}@${run.runAttempt || 1}`;
 const count = value => Number.isSafeInteger(value) && value >= 0;
@@ -42,6 +43,52 @@ function combineOutcomes(values) {
   if (values.includes("cancelled")) return "cancelled";
   if (values.includes("neutral")) return "neutral";
   return values.length ? "success" : "indeterminate";
+}
+
+function parentKey(sha, runId, runAttempt) { return `${sha}#${runId}@${runAttempt || 1}`; }
+
+// A stale pending inventory must not license a retrospective chime. Child
+// completion alone is insufficient for the opposite case too: a parent can
+// genuinely finish later, or an external status can be published afterwards.
+// Record exact live-parent identities and consider each source's actual time.
+function prCompletionTiming(scan, task, complete, confirmedAtMs) {
+  const sourceShas = new Set(scan.sources.map(source => source.sha));
+  const parents = new Map((task.liveParents || []).filter(parent => sourceShas.has(parent.sha))
+    .map(parent => [parentKey(parent.sha, parent.runId, parent.runAttempt), parent]));
+  if (complete) {
+    for (const source of scan.sources) for (const run of source.workflows) {
+      if (!LIVE.has(run.status)) continue;
+      const key = parentKey(source.sha, run.id, run.run_attempt);
+      const old = parents.get(key);
+      parents.set(key, { sha: source.sha, runId: run.id, runAttempt: run.run_attempt || 1,
+        updatedAtMs: Math.max(old?.updatedAtMs || 0, timestamp(run.updated_at)) });
+    }
+  }
+  task.liveParents = [...parents.values()].slice(-MAX_PARENT_WITNESSES);
+  let latest = 0, source = "", timingComplete = true, objects = 0;
+  const consider = (value, kind) => {
+    objects++;
+    if (!(value > 0) || value > confirmedAtMs + 5000) { timingComplete = false; return; }
+    if (value > latest) { latest = value; source = kind; }
+  };
+  for (const target of scan.sources) {
+    for (const check of target.checks) if (check.status === "completed") {
+      consider(timestamp(check.completed_at), "completed_at");
+    }
+    for (const status of target.statuses) if (["success", "failure", "error"].includes(status.state)) {
+      // Commit status updates create new immutable status objects. Their
+      // creation time is evidence of the final context publication itself.
+      consider(timestamp(status.created_at), "status_created_at");
+    }
+    for (const run of target.workflows) if (run.status === "completed") {
+      const witness = parents.get(parentKey(target.sha, run.id, run.run_attempt));
+      const updatedAtMs = timestamp(run.updated_at);
+      if (witness && updatedAtMs >= witness.updatedAtMs) consider(updatedAtMs, "witnessed_parent_updated_at");
+      else timingComplete = false;
+    }
+  }
+  return { terminalTimeMs: latest, terminalTimeSource: source,
+    terminalTimingComplete: timingComplete && objects > 0, liveParents: task.liveParents };
 }
 
 // All inventory pages and the before/after PR identity have already been
@@ -252,7 +299,8 @@ export class CompletionProvider {
         this.prTasks.set(subscription.id, {
           ...subscription, type: "pr", nextPollMs: 0, scan: null, candidate: null, failures: 0,
           verifiedHeadSha: subscription.headSha || "",
-          relevantMergeSha: subscription.relevantMergeSha || "", seenOpen: subscription.seenOpen === true
+          relevantMergeSha: subscription.relevantMergeSha || "", seenOpen: subscription.seenOpen === true,
+          liveParents: Array.isArray(subscription.liveParents) ? subscription.liveParents.slice(-MAX_PARENT_WITNESSES) : []
         });
       }
     }
@@ -562,6 +610,7 @@ export class CompletionProvider {
         task.verifiedHeadSha = headSha;
         task.relevantMergeSha = "";
         task.seenOpen = false;
+        task.liveParents = [];
       }
       if (pull.state === "open") {
         task.seenOpen = true;
@@ -602,6 +651,7 @@ export class CompletionProvider {
           return;
         }
         const evidence = summarizePrEvidence(scan);
+        const timing = prCompletionTiming(scan, task, evidence.complete, now);
         const matching = task.candidate?.signature === evidence.signature &&
           task.candidate.headSha === headSha && task.candidate.mergeSha === mergeSha;
         const settled = evidence.complete && evidence.terminal && matching &&
@@ -610,7 +660,7 @@ export class CompletionProvider {
           if (!matching) task.candidate = { headSha, mergeSha, signature: evidence.signature, confirmedAtMs: now };
         } else task.candidate = null;
         await this.interactions.observePr(task.id, {
-          ...evidence, headSha, settled,
+          ...evidence, ...timing, headSha, settled,
           mergeSha, prState: pull.state, seenOpen: task.seenOpen,
           requestStartedAtMs: scan.startedAtMs, confirmedAtMs: now,
           reason: settled ? "Current-head check set verified complete in two stable, fully paginated scans." : evidence.reason

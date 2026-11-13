@@ -28,7 +28,8 @@ async function fixture(t) {
   monitor.nextDiscoveryMs = now + 1_000_000;
   const control = { head, merge: "", state: "in_progress", conclusion: "success", attempt: 1, failurePath: "", failures: 403,
     partialChecks: false, noChecks: false, statusPending: false, checkCount: 2, workflowCount: 2, prState: "open", completedAtMs: now - 10_000,
-    required: [], rules: [], dormantSuite: false, perSha: {} };
+    required: [], rules: [], dormantSuite: false, perSha: {}, runUpdatedAtMs: null,
+    statusState: "pending", statusCreatedAtMs: now - 10_000 };
   const paths = [];
   function rawRun(overrides = {}) {
     return {
@@ -36,7 +37,7 @@ async function fixture(t) {
       head_sha: control.head, head_branch: "feature", status: control.state,
       conclusion: control.state === "completed" ? control.conclusion : null,
       check_suite_id: 11, event: "pull_request", html_url: `https://github.com/${repository}/actions/runs/101`,
-      created_at: new Date(now - 120_000).toISOString(), updated_at: new Date(now).toISOString(),
+      created_at: new Date(now - 120_000).toISOString(), updated_at: new Date(control.runUpdatedAtMs ?? now).toISOString(),
       pull_requests: [{ number: 7, head: { sha: control.head } }], ...overrides
     };
   }
@@ -82,7 +83,9 @@ async function fixture(t) {
     if (url.includes("/check-runs?")) return response({ total_count: control.partialChecks ? 200 : checks.length,
       check_runs: checks.slice((page - 1) * 100, page * 100) });
     if (url.includes("/status?")) return response({ sha, total_count: control.statusPending ? 1 : 0,
-      state: "pending", statuses: control.statusPending ? [{ id: 1, context: "external", state: "pending" }] : [] });
+      state: control.statusPending ? control.statusState : "pending",
+      statuses: control.statusPending ? [{ id: control.statusState === "pending" ? 1 : 2,
+        context: "external", state: control.statusState, created_at: new Date(control.statusCreatedAtMs).toISOString() }] : [] });
     if (url.includes("/actions/runs?head_sha=")) return response({ total_count: control.noChecks ? 0 : 1,
       ...(control.noChecks ? {} : { total_count: control.workflowCount }),
       workflow_runs: control.noChecks ? [] : Array.from({ length: control.workflowCount }, (_, i) =>
@@ -586,3 +589,43 @@ for (const conclusion of ["cancelled", "skipped", "startup_failure"]) {
     assert.equal(event.outcome, conclusion === "cancelled" ? "cancelled" : conclusion === "skipped" ? "neutral" : "failure");
   });
 }
+
+test("a stale pending PR baseline cannot notify when every final source predates arming", async t => {
+  const f = await fixture(t);
+  f.control.runUpdatedAtMs = f.now() - 10_000;
+  f.control.completedAtMs = f.now() - 10_000;
+  await f.interactions.armPr(repository, 7);
+  await f.prCycle();
+  assert.equal(f.interactions.targets().subscriptions[0].seenActive, true);
+  f.control.state = "completed";
+  await f.prCycle(); await f.prCycle();
+  assert.equal(f.interactions.publicState().events.length, 0);
+  assert.equal(f.interactions.publicState().subscriptions[0].status, "invalidated");
+});
+
+test("a later witnessed parent finish is valid even when child jobs finished before arming", async t => {
+  const f = await fixture(t);
+  f.control.runUpdatedAtMs = f.now() - 10_000;
+  f.control.completedAtMs = f.now() - 10_000;
+  await f.interactions.armPr(repository, 7);
+  await f.prCycle();
+  f.control.state = "completed";
+  f.control.runUpdatedAtMs = f.now() + 100;
+  await f.prCycle(); await f.prCycle();
+  assert.equal(f.interactions.publicState().events.length, 1);
+  assert.equal(f.interactions.publicState().events[0].outcome, "success");
+});
+
+test("a newly published final status proves post-arm PR completion independently of old jobs", async t => {
+  const f = await fixture(t);
+  f.control.state = "completed";
+  f.control.runUpdatedAtMs = f.now() - 10_000;
+  f.control.completedAtMs = f.now() - 10_000;
+  f.control.statusPending = true;
+  await f.interactions.armPr(repository, 7);
+  await f.prCycle();
+  f.control.statusState = "success";
+  f.control.statusCreatedAtMs = f.now() + 100;
+  await f.prCycle(); await f.prCycle();
+  assert.equal(f.interactions.publicState().events.length, 1);
+});

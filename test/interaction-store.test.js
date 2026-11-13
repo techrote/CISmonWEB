@@ -204,7 +204,9 @@ test("PR completion requires full current-head evidence, activity and settlement
   async function observe(changes) {
     clock.now += 1000;
     await store.observePr(sub.id, { headSha: sha, complete: true, terminal: false,
-      requestStartedAtMs: clock.now - 100, confirmedAtMs: clock.now, ...changes }, { generation: sub.generation });
+      requestStartedAtMs: clock.now - 100, confirmedAtMs: clock.now,
+      terminalTimeSource: "completed_at", terminalTimeMs: clock.now - 100,
+      terminalTimingComplete: true, ...changes }, { generation: sub.generation });
   }
   await observe({ complete: false, terminal: true, outcome: "success", settled: true, signature: "partial" });
   assert.equal(store.publicState().subscriptions[0].phase, "indeterminate");
@@ -310,12 +312,67 @@ test("coalescing prioritizes a failure while preserving both run and PR event re
   await store.observePr(pr.id, { headSha: sha, complete: true, terminal: false, requestStartedAtMs: clock.now, confirmedAtMs: clock.now });
   clock.now += 100;
   await store.observePr(pr.id, { headSha: sha, complete: true, terminal: true, outcome: "failure", signature: "full", settled: true,
-    requestStartedAtMs: clock.now, confirmedAtMs: clock.now });
+    requestStartedAtMs: clock.now, confirmedAtMs: clock.now,
+    terminalTimeSource: "completed_at", terminalTimeMs: clock.now - 10, terminalTimingComplete: true });
   assert.equal((await store.claim({ clientId: "browser-one", audioReady: true })).claimId, null);
   clock.now += 1500;
   const claim = await store.claim({ clientId: "browser-one", audioReady: true });
   assert.equal(claim.sound, "failure"); assert.equal(claim.events.length, 2);
   assert.deepEqual(claim.events.map(event => event.type), ["run", "pr"]);
+});
+
+test("PR timing contradicting a stale baseline never produces a retrospective event", async t => {
+  const { store, clock } = await setup(t);
+  await store.armPr("owner/project", 9);
+  const sub = store.targets().subscriptions[0];
+  clock.now += 1000;
+  await store.observePr(sub.id, { headSha: sha, complete: true, terminal: false,
+    requestStartedAtMs: clock.now, confirmedAtMs: clock.now });
+  clock.now += 1000;
+  await store.observePr(sub.id, { headSha: sha, complete: true, terminal: true, settled: true,
+    signature: "old-complete-set", outcome: "success", terminalTimingComplete: true,
+    terminalTimeSource: "completed_at", terminalTimeMs: sub.armedAtMs - 10000,
+    requestStartedAtMs: clock.now, confirmedAtMs: clock.now });
+  assert.equal(store.publicState().events.length, 0);
+  assert.equal(store.publicState().subscriptions[0].phase, "already-complete");
+});
+
+test("missing or precision-overlapping PR timing stays indeterminate despite an active baseline", async t => {
+  const { store, clock } = await setup(t);
+  await store.armPr("owner/project", 9);
+  const sub = store.targets().subscriptions[0];
+  clock.now += 1000;
+  await store.observePr(sub.id, { headSha: sha, complete: true, terminal: false,
+    requestStartedAtMs: clock.now, confirmedAtMs: clock.now });
+  for (const proof of [ {}, { terminalTimingComplete: true, terminalTimeMs: sub.armedAtMs - 200,
+    terminalTimeSource: "completed_at" }, { terminalTimingComplete: false,
+    terminalTimeMs: sub.armedAtMs - 10000, terminalTimeSource: "completed_at" } ]) {
+    clock.now += 1000;
+    await store.observePr(sub.id, { headSha: sha, complete: true, terminal: true, settled: true,
+      signature: "stable-but-uncertain", outcome: "success", ...proof,
+      requestStartedAtMs: clock.now, confirmedAtMs: clock.now });
+    assert.equal(store.publicState().events.length, 0);
+    assert.equal(store.targets().subscriptions[0].phase, "indeterminate");
+  }
+});
+
+test("PR live parent timing witnesses survive restart with the correct head and attempt", async t => {
+  const { store, clock, directory } = await setup(t);
+  await store.armPr("owner/project", 9);
+  const sub = store.targets().subscriptions[0];
+  clock.now += 1000;
+  const parents = [{ sha, runId: 10, runAttempt: 2, updatedAtMs: clock.now }];
+  await store.observePr(sub.id, { headSha: sha, mergeSha: "", prState: "open", complete: true, terminal: false,
+    liveParents: parents, requestStartedAtMs: clock.now, confirmedAtMs: clock.now });
+  const restored = new InteractionStore(directory, { now: () => clock.now });
+  await restored.load();
+  assert.deepEqual(restored.targets().subscriptions[0].liveParents, parents);
+  clock.now += 1000;
+  await restored.observePr(sub.id, { headSha: sha, complete: true, terminal: true, settled: true,
+    signature: "parent-completed", outcome: "cancelled", terminalTimingComplete: true,
+    terminalTimeSource: "witnessed_parent_updated_at", terminalTimeMs: clock.now - 100,
+    requestStartedAtMs: clock.now, confirmedAtMs: clock.now });
+  assert.equal(restored.publicState().events[0].outcome, "cancelled");
 });
 
 test("disabled/muted sound never replays old events when enabled later", async t => {
