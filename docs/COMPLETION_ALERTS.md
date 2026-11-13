@@ -111,6 +111,21 @@ candidate. An empty set is unknown, not success. Pending/queued suites prevent
 their not-yet-created child checks from being mistaken for an empty successful
 set. The user can inspect the subscription's reason and cancel it at any time.
 
+Stable terminal coverage must also establish that completion occurred after
+arming. Accepted timing evidence is a check's `completed_at`, an immutable
+commit status's `created_at`, or a workflow's `updated_at` when that exact SHA,
+run ID and attempt was previously observed live. Up to 64 exact live-parent
+witnesses persist across restart. A later parent or final external status can
+therefore prove completion even when its child jobs finished earlier.
+
+A stale pending snapshot never licenses a retrospective chime. If the complete
+timing evidence clearly predates arming, the subscription is recorded as
+already complete without an event. Missing timestamps, overlap with arming at
+GitHub's timestamp precision, or an unwitnessed parent's ambiguous completion
+time remain armed and explicitly indeterminate. In particular, a PR first
+observed entirely terminal is not automatically declared already complete when
+its parent completion timing cannot be verified.
+
 This is a conservative polling assessment of GitHub evidence, not a promise
 that no integration could ever create more work later. In particular:
 
