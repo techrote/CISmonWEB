@@ -86,9 +86,18 @@ Choose **1 or 2 decimal places** (rather than mathematical significant figures).
 
 The format affects displayed elapsed, queue waiting, baseline, ETA,
 source age and detail durations, but **not** numeric sorting, analysis
-calculations, or timestamp formats. Each Dual/Vert pane has independent
-duration controls and the **Apply Focus settings** action copies them.
-Older saved profiles remain in Compact mode.
+calculations, or timestamp formats. Each Dual/Vert pane has an explicit **Inherit surface** option (default);
+changing the parent immediately changes all inheriting panes. A pane can
+instead override the format, units, and precision, including an explicit
+Compact override. **Apply Focus settings** copies the selected policy. Old
+per-pane `compact` snapshots without an override marker migrate to inheritance;
+non-Compact preexisting overrides are preserved. The old snapshot cannot
+distinguish an intentionally selected Compact override from an automatic
+default; to pin Compact, select it again in the updated pane editor.
+Older surface profiles remain Compact by default. Open run details retain
+the originating pane's format across live refreshes, and SYNC AGE uses
+the active surface's format; operational warning prose retains compact
+units for clarity.
 
 ## Field and column controls
 
