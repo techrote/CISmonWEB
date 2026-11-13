@@ -148,12 +148,18 @@ async function stopServer() {
 }
 const runRow = (page, id, scope) => page.locator('[data-run-context][data-run-key="' + repo + "#" + id + '@1"]' +
   (scope ? '[data-pane-id="' + scope + '"]' : "")).first();
+const menuTargets = new WeakMap();
 async function show(page, surface = "focus", minimal = false) {
   await page.goto(base + "/?surface=" + surface + (minimal ? "&minimal=1" : ""), { waitUntil: "domcontentloaded" });
   await runRow(page, 101).waitFor({ timeout: 15000 });
 }
 async function menu(page, id = 101, scope) {
-  await runRow(page, id, scope).click({ button: "right" });
+  const row = runRow(page, id, scope);
+  const selectedScope = await row.evaluate(element => ({
+    surfaceId: element.dataset.surfaceId, paneId: element.dataset.paneId
+  }));
+  menuTargets.set(page, { repository: repo, runId: id, runAttempt: 1, scope: selectedScope });
+  await row.click({ button: "right" });
   await page.locator("#runContextMenu").waitFor({ state: "visible" });
 }
 async function action(page, name) {
@@ -163,7 +169,31 @@ async function action(page, name) {
     // Wait out any previous toast so its "Copied" cannot satisfy this action.
     await page.locator("#interactionToast").waitFor({ state: "hidden" });
   }
-  await page.locator('#runContextMenu [data-action="' + name + '"]').click();
+  const endpoint = name === "watch" ? "/api/watch" : name === "acknowledge" ? "/api/acknowledge" :
+    ["pin", "unpin", "arm-run", "cancel-run", "arm-pr", "cancel-pr"].includes(name) ? "/api/interactions" : "";
+  const selected = menuTargets.get(page);
+  // Menu dismissal precedes async persistence. Register before clicking and
+  // match this action/identity, excluding polling or lazy resolve-pr traffic.
+  // Windows filesystem latency must not turn a correct atomic write into a
+  // test that reads the old accepted state while the POST is still running.
+  const accepted = endpoint ? page.waitForResponse(response => {
+    const request = response.request();
+    if (request.method() !== "POST" || response.url() !== base + endpoint) return false;
+    const body = request.postDataJSON();
+    if (endpoint === "/api/interactions" && body.action !== name) return false;
+    if (selected && (body.repository !== selected.repository || body.runId !== selected.runId ||
+        body.runAttempt !== selected.runAttempt)) return false;
+    return !["pin", "unpin"].includes(name) || !selected ||
+      body.scope?.surfaceId === selected.scope.surfaceId && body.scope?.paneId === selected.scope.paneId;
+  }) : null;
+  const [response] = await Promise.all([
+    accepted,
+    page.locator('#runContextMenu [data-action="' + name + '"]').click()
+  ]);
+  if (response) {
+    assert.equal(await response.finished(), null, name + " response must finish before assertions read persisted state");
+    assert.equal(response.status(), 200, name + " mutation rejected: " + await response.text());
+  }
   await page.locator("#runContextMenu").waitFor({ state: "hidden" });
   if (name.startsWith("copy-")) {
     await page.waitForFunction(() => {
