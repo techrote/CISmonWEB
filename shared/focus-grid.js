@@ -23,7 +23,7 @@ export const GRID_FIELDS = Object.freeze([
   ["branch", "BRANCH", 210],
   ["event", "EVENT", 110]
 ]);
-export const GRID_MIN_WIDTH = 40;
+export const GRID_MIN_WIDTH = 36;
 export const GRID_FIELD_SET = new Set(GRID_FIELDS.map(([id]) => id));
 export const GRID_OVERFLOW_MODES = Object.freeze([
   ["ellipsis", "Clip with ellipsis"],
@@ -69,6 +69,16 @@ export function durationBreakSegments(value) {
   return segments;
 }
 export const GRID_LABEL = Object.freeze(Object.fromEntries(GRID_FIELDS.map(([id, label]) => [id, label])));
+// Compact fallback names never exceed five characters. The renderer switches
+// only when the actual rendered column cannot fit the original label.
+export const GRID_SHORT_LABEL = Object.freeze({
+  owner: "OWNER", repository: "REPO", workflow: "WORKF", runNumber: "#",
+  attention: "ATTN", stage: "STAGE", state: "STATE", jobActivity: "JOBS",
+  providerAge: "AGE", elapsed: "ELAPS", baseline: "MED", ratio: "RATIO",
+  remaining: "ETA", stageRemaining: "S-ETA", confidence: "CONF",
+  qty: "QTY", confQty: "C/QTY", checks: "CHECK", added: "ADDED",
+  updated: "UPDAT", branch: "BRNCH", event: "EVENT"
+});
 export const GRID_DEFAULT_WIDTH = Object.freeze(Object.fromEntries(GRID_FIELDS.map(([id, , width]) => [id, width])));
 export const GRID_DATE_FORMATS = Object.freeze([
   ["short", "Local short"],
@@ -84,6 +94,32 @@ const GRID_DATE_FORMAT_IDS = new Set(GRID_DATE_FORMATS.map(([id]) => id));
 export function normalizeGridLockedWidths(value) {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.filter(field => GRID_FIELD_SET.has(field)))];
+}
+export const DURATION_MODES = Object.freeze(["compact", "decimal", "unitless_hours"]);
+export const DURATION_UNITS = Object.freeze(["auto", "s", "m", "h", "d"]);
+export function normalizeDurationMode(value) {
+  return DURATION_MODES.includes(value) ? value : "compact";
+}
+export function normalizeDurationUnit(value) {
+  return DURATION_UNITS.includes(value) ? value : "auto";
+}
+export function normalizeDurationDecimals(value) {
+  return Number(value) === 2 ? 2 : 1;
+}
+// null means preserve each view's existing compact-duration formatting.
+// Decimal precision means digits after the decimal point (not significant figures).
+// This only changes text: raw timing values remain authoritative for sorting.
+export function formatGridDuration(ms, options = {}, allowZero = false) {
+  if (normalizeDurationMode(options.durationMode) === "compact") return null;
+  const value = Number(ms);
+  if (!Number.isFinite(value) || value < 0 || (!allowZero && value === 0)) return "—";
+  const unit = options.durationMode === "unitless_hours" ? "h" :
+    normalizeDurationUnit(options.durationUnit) === "auto" ?
+      (value >= 3600000 ? "h" : value >= 60000 ? "m" : "s") :
+      normalizeDurationUnit(options.durationUnit);
+  const milliseconds = { s: 1000, m: 60000, h: 3600000, d: 86400000 }[unit];
+  const numeric = (value / milliseconds).toFixed(normalizeDurationDecimals(options.durationDecimals));
+  return numeric + (options.durationMode === "unitless_hours" ? "" : unit);
 }
 export function normalizeGridDateFormat(value) {
   return GRID_DATE_FORMAT_IDS.has(value) ? value : "short";
@@ -203,6 +239,9 @@ export function normalizePane(input = {}, index = 0, parent = {}) {
     gridBreakAfterSeparators: boolean(
       input.gridBreakAfterSeparators, parent.gridBreakAfterSeparators ?? true
     ),
+    durationMode: normalizeDurationMode(input.durationMode ?? parent.durationMode),
+    durationUnit: normalizeDurationUnit(input.durationUnit ?? parent.durationUnit),
+    durationDecimals: normalizeDurationDecimals(input.durationDecimals ?? parent.durationDecimals),
     gridSortBy: normalizeGridSortBy(input.gridSortBy ?? (left ? "priority" : "attention")),
     gridSortDir: input.gridSortDir === "asc" ? "asc" : "desc",
     gridSortSecondaryBy: normalizeGridSortBy(input.gridSortSecondaryBy) === "priority"
