@@ -329,8 +329,12 @@ export function createNotifications({ api, onChange = () => {},
     const armed = (state.subscriptions || []).filter(item => item.status === "armed").length;
     const sound = !settings.soundEnabled ? "Sound off" : settings.muted || settings.volume === 0 ? "Muted" :
       player.ready() ? "Audio ready" : player.status === "unavailable" ? "Audio unavailable" : "Audio blocked — click to enable";
+    const needsAudio = settings.soundEnabled && !settings.muted && settings.volume > 0 && !player.ready() &&
+      (armed > 0 || (state.events || []).some(event => event.delivery?.status === "pending"));
+    const audioWarning = needsAudio ? (player.status === "unavailable" ? "Audio unavailable" : "Enable audio") : "";
     for (const button of buttons) {
-      button.textContent = button.dataset.compact === "true" ? "🔔 " + armed : "Notifications · " + armed;
+      button.textContent = (button.dataset.compact === "true" ? "🔔 " + armed : "Notifications · " + armed) +
+        (audioWarning ? " · " + audioWarning : "");
       button.setAttribute("aria-label", "Completion notifications: " + armed + " armed; " + sound);
       button.title = armed + " armed completion alerts · " + sound;
       button.dataset.audioState = !settings.soundEnabled ? "off" : settings.muted ? "muted" : player.status;
@@ -467,7 +471,10 @@ export function createNotifications({ api, onChange = () => {},
     const button = el("button", compact ? "notification-button notification-button-compact" : "button secondary notification-button");
     button.type = "button";
     button.dataset.compact = String(compact);
-    button.addEventListener("click", open);
+    button.addEventListener("click", () => {
+      if (state.settings.soundEnabled && !state.settings.muted) void player.enableFromGesture();
+      open();
+    });
     buttons.add(button);
     renderStatus();
     return button;
