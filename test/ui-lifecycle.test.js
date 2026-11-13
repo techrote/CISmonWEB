@@ -397,3 +397,35 @@ test("workflow-history uses exact workflow identity and remains a temporary disp
   assert.deepEqual([...ids], [1]);
   assert.equal(ui.run("JSON.stringify(config)"), before);
 });
+
+test("detail activation and subsequent refresh retain the selected pinned attempt", async () => {
+  const requests = [];
+  const ui = app(async url => {
+    const parsed = new URL(url, "http://local");
+    requests.push(Number(parsed.searchParams.get("runAttempt")));
+    return { ...detail(8), runAttempt: 1, actionsAvailable: false,
+      actionsUnavailableReason: "Retained attempt; latest run attempt is 2.",
+      conclusion: "failure", analysis: { attention: "action_required" } };
+  });
+  await ui.run('openDetail("owner/repo", 8, 1)');
+  await ui.run('renderDetail("owner/repo", 8, false)');
+  assert.deepEqual(requests, [1, 1]);
+  assert.match(ui.element("#detailTitle").textContent, /attempt 1/);
+  assert.equal(ui.element("#detailActions").children[0].disabled, true);
+  assert.equal(ui.element("#detailActions").children[1].disabled, true);
+  assert.match(ui.element("#detailMeta").textContent, /Retained attempt/);
+});
+
+test("switching attempts of the same run rejects a delayed earlier detail response", async () => {
+  const gate = deferred();
+  const ui = app(async url => {
+    const attempt = Number(new URL(url, "http://local").searchParams.get("runAttempt"));
+    if (attempt === 1) await gate.promise;
+    return { ...detail(8), runAttempt: attempt };
+  });
+  const first = ui.run('openDetail("owner/repo", 8, 1)');
+  await ui.run('openDetail("owner/repo", 8, 2)');
+  gate.resolve(); await first;
+  assert.match(ui.element("#detailTitle").textContent, /attempt 2/);
+  assert.equal(ui.run("selectedRun.runAttempt"), 2);
+});

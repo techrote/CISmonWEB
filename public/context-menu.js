@@ -1,12 +1,13 @@
 // One menu model and one interaction controller for every selectable run.
 // Provider association and persisted action state are supplied by the app;
 // this module never infers a PR from a visible number or a workflow name.
-export function runActionDefinitions({ row, links, association, pinned, runArmed, prArmed }) {
+export function runActionDefinitions({ row, links, association, pinned, runArmed, prArmed, scopeLabel = "this view" }) {
   const terminal = (row.providerState || row.state) === "completed";
   const unavailable = row.providerUnavailable === true || row.pinStatus === "unavailable";
   const prReason = association?.reason || "No verified, unambiguous PR association is available.";
   const prAvailable = association?.status === "resolved" && Boolean(links.pr);
-  const restoring = row.pinStatus === "restoring";
+  const restoring = row.pinStatus === "restoring" || row.actionsAvailable === false;
+  const actionReason = row.actionsUnavailableReason || "This retained attempt is read-only; its current provider state must be verified before watch or acknowledgement actions.";
   const runReason = unavailable || restoring ? "GitHub cannot currently verify this run." : terminal
     ? "This attempt has already completed. No retrospective alert will sound."
     : !["queued", "in_progress"].includes(row.providerState || row.state) ? "This run has no verified active attempt." : "";
@@ -18,10 +19,12 @@ export function runActionDefinitions({ row, links, association, pinned, runArmed
     { id: prArmed ? "cancel-pr" : "arm-pr", label: prArmed ? "Cancel PR alert" : "Alert when PR checks complete",
       checked: Boolean(prArmed), disabled: !prArmed && !prAvailable, reason: prReason },
     { separator: true },
-    { id: pinned ? "unpin" : "pin", label: pinned ? "Unpin" : "Pin to top", checked: Boolean(pinned) },
-    { id: "watch", label: row.manualWatch ? "Stop watching" : "Watch run", checked: Boolean(row.manualWatch) },
+    { id: pinned ? "unpin" : "pin", label: pinned ? "Unpin" : "Pin to top", checked: Boolean(pinned),
+      description: "Applies only to " + scopeLabel + ". Pins do not change watching or completion alerts." },
+    { id: "watch", label: row.manualWatch ? "Stop watching" : "Watch run", checked: Boolean(row.manualWatch),
+      disabled: row.actionsAvailable === false, reason: actionReason },
     ...(!row.acknowledged && ["failure", "timed_out", "action_required", "startup_failure"].includes(row.conclusion)
-      ? [{ id: "acknowledge", label: "Acknowledge failure" }] : []),
+      ? [{ id: "acknowledge", label: "Acknowledge failure", disabled: row.actionsAvailable === false, reason: actionReason }] : []),
     { id: "open-ci", label: "Open CI on GitHub", disabled: !links.ci, reason: "No valid GitHub run URL is available." },
     { id: "open-pr", label: "Open related PR", disabled: !prAvailable, reason: prReason },
     { id: "open-commit", label: "Open commit", disabled: !links.commit, reason: "No verified commit SHA is available." },
@@ -120,9 +123,10 @@ export function createContextMenu({ root, resolveTarget, onSelect, onOpen, onErr
       marker.setAttribute("aria-hidden", "true");
       marker.textContent = action.checked ? "✓" : "";
       button.append(marker, documentObject.createTextNode(action.label));
-      if (action.disabled && action.reason) {
-        button.title = action.reason;
-        button.setAttribute("aria-description", action.reason);
+      const explanation = action.disabled ? action.reason : action.description;
+      if (explanation) {
+        button.title = explanation;
+        button.setAttribute("aria-description", explanation);
       }
       button.addEventListener("click", event => {
         event.preventDefault();

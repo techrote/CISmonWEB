@@ -82,7 +82,7 @@ function makeRow(row, mode, openRun, formatDuration, surface, onFocus = null, on
   }
 
   button.append(repo, title, lower);
-  button.addEventListener("click", () => openRun(row.repository, row.runId));
+  button.addEventListener("click", () => openRun(row.repository, row.runId, row.runAttempt || 1));
   if (onFocus) button.addEventListener("pointerenter", () => onFocus(row));
   onRow?.(button, row);
   return button;

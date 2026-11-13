@@ -105,3 +105,15 @@ test("clipboard fallback restores focus and reports denied copy accurately", asy
   assert.equal(removed, 2);
   assert.equal(focusRestored, 2);
 });
+
+test("retained old attempts explain disabled watch and acknowledgement without changing pins", () => {
+  const menu = actions({ row: { ...row, actionsAvailable: false, conclusion: "failure",
+    actionsUnavailableReason: "Current tracked attempt is 2; this is retained attempt 1." },
+    pinned: true, scopeLabel: "Focus Dual / Alerts" });
+  for (const id of ["watch", "acknowledge"]) {
+    assert.equal(menu.find(action => action.id === id).disabled, true);
+    assert.match(menu.find(action => action.id === id).reason, /retained attempt 1/);
+  }
+  assert.match(menu.find(action => action.id === "unpin").description, /Focus Dual \/ Alerts/);
+  assert.equal(menu.find(action => action.id === "arm-run").disabled, true);
+});

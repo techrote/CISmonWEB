@@ -176,8 +176,12 @@ function contextFor(element) {
   const scope = { surfaceId: element.dataset.surfaceId, paneId: element.dataset.paneId };
   const association = prAssociation(row);
   const subscriptions = subscriptionsFor(row);
+  const surface = config.surfaces.find(item => item.id === scope.surfaceId);
+  const [kind, index] = scope.paneId.split(":");
+  const pane = kind === "dual" ? surface?.dualPanes?.[Number(index)] : kind === "vert" ? surface?.vertPanes?.[Number(index)] : null;
+  const scopeLabel = (surface?.name || scope.surfaceId) + (pane ? " / " + pane.name : "");
   return {
-    row, scope, association, subscriptions,
+    row, scope, scopeLabel, association, subscriptions,
     pinned: scopedPin(row, scope), runArmed: subscriptions.run, prArmed: subscriptions.pr,
     links: { ci: ciUrl(row), pr: association.url, commit: commitUrl(row),
       sha: /^[0-9a-f]{40}$/i.test(row.headSha || "") ? row.headSha : "" }
@@ -419,7 +423,7 @@ function renderRunCard(row, surface) {
   card.type = "button";
   card.dataset.attention = row.attention;
   card.dataset.layout = surface.layout;
-  card.addEventListener("click", () => openDetail(row.repository, row.runId));
+  card.addEventListener("click", () => openDetail(row.repository, row.runId, row.runAttempt || 1));
 
   const identityCell = node("div", "run-cell identity-cell");
   identityCell.append(renderIdentity(row, surface));
@@ -603,9 +607,9 @@ function renderTable(rows, surface) {
     const tr = node("tr");
     tr.tabIndex = 0;
     tr.dataset.attention = row.attention;
-    tr.addEventListener("click", () => openDetail(row.repository, row.runId));
+    tr.addEventListener("click", () => openDetail(row.repository, row.runId, row.runAttempt || 1));
     tr.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") openDetail(row.repository, row.runId);
+      if (event.key === "Enter" || event.key === " ") openDetail(row.repository, row.runId, row.runAttempt || 1);
     });
 
     const identity = node("td");
@@ -1005,13 +1009,16 @@ async function renderDetail(repository, runId, show = true) {
   const requestId = ++detailRequestId;
   let detail;
   try {
-    detail = await api("/api/run?repository=" + encodeURIComponent(repository) + "&runId=" + encodeURIComponent(runId));
+    detail = await api("/api/run?repository=" + encodeURIComponent(repository) + "&runId=" + encodeURIComponent(runId) +
+      (selection.runAttempt ? "&runAttempt=" + encodeURIComponent(selection.runAttempt) : ""));
   } catch (error) {
     if (selectedRun !== selection || requestId !== detailRequestId) return;
     throw error;
   }
   if (selectedRun !== selection || requestId !== detailRequestId) return;
-  elements.detailTitle.textContent = detail.repository + " / " + detail.workflowName + " #" + detail.runNumber;
+  selection.runAttempt ||= detail.runAttempt || 1;
+  elements.detailTitle.textContent = detail.repository + " / " + detail.workflowName + " #" + detail.runNumber +
+    " · attempt " + (detail.runAttempt || 1);
   elements.detailMeta.textContent = [
     detail.event,
     detail.branch,
@@ -1019,35 +1026,42 @@ async function renderDetail(repository, runId, show = true) {
     detail.providerState === "queued" && detail.state === "in_progress"
       ? "GitHub queued · " + detail.observedRunningJobs + " executing jobs"
       : "",
-    detail.jobsCoverageComplete === false ? "Job scan incomplete" : ""
+    detail.jobsCoverageComplete === false ? "Job scan incomplete" : "",
+    detail.actionsAvailable === false ? detail.actionsUnavailableReason || "Retained attempt; watch and acknowledgement unavailable" : ""
   ].filter(Boolean).join("  ·  ");
 
   elements.detailActions.replaceChildren();
-  elements.detailActions.append(actionButton(detail.manualWatch ? "Stop watching" : "Watch run", async () => {
+  const watchButton = actionButton(detail.manualWatch ? "Stop watching" : "Watch run", async () => {
     await api("/api/watch", {
       method: "POST",
-      body: JSON.stringify({ repository, runId, watched: !detail.manualWatch })
+      body: JSON.stringify({ repository, runId, runAttempt: detail.runAttempt || 1, watched: !detail.manualWatch })
     });
     await renderDetail(repository, runId, false);
     await pollState();
-  }, true));
+  }, true);
+  watchButton.disabled = detail.actionsAvailable === false;
+  if (watchButton.disabled) watchButton.title = detail.actionsUnavailableReason || "This retained attempt cannot change the current run's watch state.";
+  elements.detailActions.append(watchButton);
 
   if (!detail.acknowledged && detail.analysis.attention === "action_required") {
-    elements.detailActions.append(actionButton("Acknowledge failure", async () => {
+    const acknowledgeButton = actionButton("Acknowledge failure", async () => {
       await api("/api/acknowledge", {
         method: "POST",
         body: JSON.stringify({ repository, runId, runAttempt: detail.runAttempt || 1 })
       });
       if (selectedRun === selection) elements.detailDialog.close();
       await pollState();
-    }));
+    });
+    acknowledgeButton.disabled = detail.actionsAvailable === false;
+    if (acknowledgeButton.disabled) acknowledgeButton.title = detail.actionsUnavailableReason || "This retained attempt cannot acknowledge a different attempt.";
+    elements.detailActions.append(acknowledgeButton);
   }
 
-  if (detail.htmlUrl) {
+  if (ciUrl(detail)) {
     const link = node("a", "button secondary", "Open on GitHub");
-    link.href = detail.htmlUrl;
+    link.href = ciUrl(detail);
     link.target = "_blank";
-    link.rel = "noreferrer";
+    link.rel = "noopener noreferrer";
     elements.detailActions.append(link);
   }
 
@@ -1084,8 +1098,8 @@ async function renderDetail(repository, runId, show = true) {
   if (show && !elements.detailDialog.open) elements.detailDialog.showModal();
 }
 
-async function openDetail(repository, runId) {
-  const selection = { repository, runId };
+async function openDetail(repository, runId, runAttempt) {
+  const selection = { repository, runId, ...(runAttempt ? { runAttempt } : {}) };
   selectedRun = selection;
   try {
     await renderDetail(repository, runId, true);

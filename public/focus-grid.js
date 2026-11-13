@@ -221,11 +221,11 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
       " · run ID " + row.runId +
       (row.runAttempt > 1 ? " · attempt " + row.runAttempt : "") +
       " · GitHub state: " + (row.providerState || row.state);
-    tr.addEventListener("click", () => callbacks.onOpen?.(row.repository, row.runId));
+    tr.addEventListener("click", () => callbacks.onOpen?.(row.repository, row.runId, row.runAttempt || 1));
     tr.addEventListener("keydown", ev => {
       if (!["Enter", " "].includes(ev.key)) return;
       ev.preventDefault();
-      callbacks.onOpen?.(row.repository, row.runId);
+      callbacks.onOpen?.(row.repository, row.runId, row.runAttempt || 1);
     });
     for (const field of fields) {
       const td = make("td", "focus-grid-cell");
