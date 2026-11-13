@@ -526,10 +526,14 @@ export function applyScopedPins(rows, pins = [], scope = {}) {
     (pin.scope?.paneId || "main") === (scope.paneId || "main"));
   const key = value => value.repository.toLowerCase() + "#" + value.runId + "@" + (value.runAttempt || 1);
   const byRun = new Map(applicable.map(pin => [key(pin), pin]));
-  return rows.map(row => {
+  return rows.flatMap(row => {
     const pin = byRun.get(key(row));
-    return pin ? { ...row, pinOrder: Number(pin.order) || 0, pinId: pin.id,
-      pinStatus: pin.status, pinReason: pin.reason || "" } : row;
+    // Keeping a provider snapshot for one pane must not revive an expired
+    // historical row in every other surface. Ordinary live/recent/watched
+    // rows remain global candidates exactly as before.
+    if (row.retainedOnly && !pin) return [];
+    return [pin ? { ...row, pinOrder: Number(pin.order) || 0, pinId: pin.id,
+      pinStatus: pin.status, pinReason: pin.reason || "" } : row];
   });
 }
 export function prioritizePinnedRows(rows) {

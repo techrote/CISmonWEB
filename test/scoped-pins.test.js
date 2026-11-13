@@ -75,3 +75,17 @@ test("grouped cards and lanes put one stable pinned group ahead of every ordinar
     assert.ok(groups.slice(1).flatMap(group => group.rows).every(row => row.pinOrder === undefined));
   }
 });
+
+test("expired pin-only snapshots appear solely in their pinned scope without reviving other surfaces", () => {
+  const input = rows.map(row => row.runId === 10 ? { ...row, retainedOnly: true } : row);
+  assert.ok(applyScopedPins(input, pins, scope).some(row => row.runId === 10));
+  for (const otherScope of [{ ...scope, paneId: "dual:1" }, { ...scope, paneId: "vert:0" },
+    { surfaceId: "wallboard", paneId: "main" }]) {
+    const projected = applyScopedPins(input, pins, otherScope);
+    assert.ok(!projected.some(row => row.runId === 10));
+    assert.equal(projected.length, input.length - 1);
+    assert.ok(projected.some(row => row.runId === 9), "ordinary nonexpired pinned rows stay available in other views");
+  }
+  const filtered = filterRows(applyScopedPins(input, pins, scope), { ...surface, showSuccess: false });
+  assert.ok(!filtered.some(row => row.runId === 10), "a local pin still honours explicit filters");
+});

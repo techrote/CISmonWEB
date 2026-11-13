@@ -232,7 +232,8 @@ export function createFunView(surface, openRun, formatDuration, onRow = null) {
     lastUpdate = { rows, state, surface: latestSurface };
     const counts = summarizeFunRows(rows);
     const clock = Number(state.updatedAt) ? new Date(state.updatedAt).toLocaleTimeString() : "—";
-    const observedRows = mode === "hungry_margins" && Array.isArray(state.rows) ? state.rows : rows;
+    const observedRows = mode === "hungry_margins" && Array.isArray(state.rows)
+      ? state.rows.filter(row => !row.retainedOnly) : rows;
     const changed = observeTransitions(seen, observedRows, performance.now());
     seen = changed.next;
     events.push(...changed.changes);
