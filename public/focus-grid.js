@@ -1,6 +1,7 @@
 import {
-  GRID_DEFAULT_WIDTH, GRID_LABEL, GRID_MIN_WIDTH, gridFieldRaw, formatGridDate,
-  normalizeGridFields, reorderGridFields, separatorBreakSegments, durationBreakSegments, sortGridRows
+  GRID_DEFAULT_WIDTH, GRID_LABEL, GRID_SHORT_LABEL, GRID_MIN_WIDTH, gridFieldRaw, formatGridDate,
+  formatGridDuration, normalizeGridFields, reorderGridFields,
+  separatorBreakSegments, durationBreakSegments, sortGridRows
 } from "/focus-grid.js";
 import { workflowStatusPresentation } from "/workflow-view.js";
 
@@ -28,8 +29,10 @@ function appendSeparatorBreaks(node, originalText) {
 
 const DURATION_FIELDS = new Set(["elapsed", "remaining", "stageRemaining", "baseline"]);
 
-function duration(ms) {
-  if (!Number.isFinite(ms) || ms <= 0) return "—";
+function duration(ms, options = {}, allowZero = false) {
+  if (!Number.isFinite(ms) || ms < 0 || (!allowZero && ms === 0)) return "—";
+  const decimal = formatGridDuration(ms, options, allowZero);
+  if (decimal !== null) return decimal;
   const s = Math.floor(ms / 1000), m = Math.floor(s / 60), h = Math.floor(m / 60);
   return h ? h + "h" + (m % 60) + "m" :
     m ? m + "m" + (s % 60) + "s" : s + "s";
@@ -39,17 +42,17 @@ function display(row, field, options) {
   switch (field) {
     case "elapsed": return row.state === "queued" &&
       row.executionState !== "in_progress"
-      ? "WAIT " + duration(row.waitingMs || 0)
-      : row.elapsedLowerBound ? "≥" + (raw > 0 ? duration(raw) : "0s")
-        : duration(raw);
+      ? "WAIT " + duration(row.waitingMs || 0, options)
+      : row.elapsedLowerBound ? "≥" + duration(raw, options, true)
+        : duration(raw, options);
     case "remaining":
       // The workflow's historical median is not a deadline. Once exceeded,
       // do not imply an exact remaining time or silently show a blank ETA.
-      return raw > 0 ? duration(raw) :
+      return raw > 0 ? duration(raw, options) :
         row.executionState === "in_progress" && !row.elapsedLowerBound &&
           row.baselineSamples > 0 && row.baselineMedianMs > 0 &&
           row.elapsedMs >= row.baselineMedianMs ? "PAST MED" : "—";
-    case "stageRemaining": case "baseline": return duration(raw);
+    case "stageRemaining": case "baseline": return duration(raw, options);
     case "ratio": return raw ? raw.toFixed(2) + "×" : "—";
     case "added": return formatGridDate(raw, options.gridAddedFormat, options.gridAddedPattern);
     case "updated": return formatGridDate(raw, options.gridUpdatedFormat, options.gridUpdatedPattern);
@@ -65,7 +68,7 @@ function display(row, field, options) {
       row.jobActivity.running + "R/" + row.jobActivity.queued + "Q" +
       (row.jobActivity.complete ? "" : "+");
     case "providerAge": return row.providerAgeMs === null ||
-      row.providerAgeMs === undefined ? "—" : duration(row.providerAgeMs) || "0s";
+      row.providerAgeMs === undefined ? "—" : duration(row.providerAgeMs, options, true);
     case "attention": return String(raw).replaceAll("_", " ");
     case "state": return workflowStatusPresentation(row).label;
     default: return raw === undefined || raw === null || raw === "" ? "—" : String(raw);
@@ -99,6 +102,8 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
   }
   const colGroup = make("colgroup");
   const cols = new Map();
+  const cellsByField = new Map(fields.map(field => [field, []]));
+  const headerUpdates = [];
   for (const field of fields) {
     const col = make("col");
     col.style.width = widths[field] + "px";
@@ -114,16 +119,43 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
     th.dataset.field = field;
     th.draggable = true;
     th.dataset.locked = String(locked.has(field));
-    const secondary = options.gridSortSecondaryBy === field;
-    const sort = make("button", "focus-sort", GRID_LABEL[field] +
-      (options.gridSortBy === field ? (options.gridSortDir === "asc" ? " ↑" : " ↓") :
-        secondary ? (options.gridSortSecondaryDir === "asc" ? " ²↑" : " ²↓") : "") +
-      "");
+    const primary = options.gridSortBy === field;
+    const secondary = options.gridSortSecondaryBy === field && !primary;
+    th.setAttribute("aria-sort", primary
+      ? (options.gridSortDir === "asc" ? "ascending" : "descending") : "none");
+    const sort = make("button", "focus-sort");
     sort.type = "button";
-    if (table.dataset.headerOverflow === "wrap" &&
-        options.gridBreakAfterSeparators !== false) {
-      appendSeparatorBreaks(sort, sort.textContent);
+    const label = make("span", "focus-sort-label", GRID_LABEL[field]);
+    sort.append(label);
+    // Measure the real header font, not a character-count guess. Never move
+    // the sort indicator into text: centered labels must stay centered.
+    const measure = document.createElement("canvas").getContext("2d");
+    function updateHeaderLabel() {
+      if (!th.isConnected) return;
+      const style = getComputedStyle(sort);
+      if (measure) measure.font = style.font;
+      const required = (measure ? measure.measureText(GRID_LABEL[field]).width :
+        GRID_LABEL[field].length * 6) +
+        (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0) + 2;
+      const short = th.getBoundingClientRect().width < required;
+      const visible = short ? GRID_SHORT_LABEL[field] : GRID_LABEL[field];
+      if (label.dataset.value === visible) return;
+      label.dataset.value = visible;
+      label.textContent = visible;
+      if (table.dataset.headerOverflow === "wrap" &&
+          options.gridBreakAfterSeparators !== false) {
+        appendSeparatorBreaks(label, visible);
+      }
     }
+    headerUpdates.push(updateHeaderLabel);
+    sort.setAttribute("aria-label", GRID_LABEL[field] + " column" +
+      (primary ? ", primary sort " + options.gridSortDir :
+        secondary ? ", secondary sort " + options.gridSortSecondaryDir : "") +
+      "; click to sort, Shift+click for secondary sort, Ctrl+click to lock width");
+    const indicator = primary || secondary ? make("span", "focus-sort-indicator",
+      (secondary ? "2" : "") +
+      ((primary ? options.gridSortDir : options.gridSortSecondaryDir) === "asc" ? "↑" : "↓")) : null;
+    indicator?.setAttribute("aria-hidden", "true");
     sort.title = (field === "remaining"
       ? "Whole workflow ETA based on run-level history; S-ETA is the active stage only. "
       : field === "stageRemaining"
@@ -166,9 +198,14 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
     function resizeBy(delta) {
       if (locked.has(field)) return;
       const target = Math.max(GRID_MIN_WIDTH, Math.min(750, widths[field] + delta));
+      const narrowChanged = (widths[field] <= 58) !== (target <= 58);
       widths[field] = target;
       cols.get(field).style.width = target + "px";
       table.style.width = usedWidth() + "px";
+      if (narrowChanged) {
+        for (const cell of cellsByField.get(field)) cell.dataset.narrow = String(target <= 58);
+      }
+      updateHeaderLabel();
       updateHorizontalOverflow();
     }
     handle.addEventListener("pointerdown", event => {
@@ -205,7 +242,9 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
       resizeBy(event.key === "ArrowLeft" ? -15 : 15);
       callbacks.onWidth?.(field, widths[field]);
     });
-    th.append(sort, handle);
+    th.append(sort);
+    if (indicator) th.append(indicator);
+    th.append(handle);
     headerRow.append(th);
   }
   head.append(headerRow);
@@ -229,6 +268,8 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
     for (const field of fields) {
       const td = make("td", "focus-grid-cell");
       td.dataset.field = field;
+      td.dataset.narrow = String(widths[field] <= 58);
+      cellsByField.get(field).push(td);
       if (field === "checks") {
         const progress = row.checks;
         const label = !progress ? "Check data unavailable (no PR head SHA)" :
@@ -271,7 +312,7 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
       } else {
         const v = display(row, field, options);
         const value = make("span", "focus-grid-value", v);
-        const durationField = DURATION_FIELDS.has(field);
+        const durationField = DURATION_FIELDS.has(field) || field === "providerAge";
         if (durationField) value.dataset.duration = "true";
         if (table.dataset.wrap === "wrap") {
           if (durationField) appendBreakSegments(value, durationBreakSegments(v));
@@ -310,6 +351,7 @@ export function createFocusGrid(rows, options, callbacks = {}, key = "focus") {
   requestAnimationFrame(() => {
     if (!wrap.isConnected) return;
     updateHorizontalOverflow();
+    for (const update of headerUpdates) update();
     if (wrap.dataset.horizontal === "scroll") wrap.scrollLeft = left;
     wrap.scrollTop = top;
   });
