@@ -183,7 +183,8 @@ async function clipboardContents(page) {
     await page.context().grantPermissions(["clipboard-read"], { origin: base });
     await page.bringToFront();
     report.clipboardReader = "Native Chromium navigator.clipboard.readText; reader permission granted after production write";
-    return page.evaluate(() => navigator.clipboard.readText());
+    try { return await page.evaluate(() => navigator.clipboard.readText()); }
+    finally { await page.context().clearPermissions(); }
   }
   // Paste by a real browser gesture, not a mocked navigator.clipboard.
   report.clipboardReader = "Native Firefox Ctrl+V into a real textarea";
