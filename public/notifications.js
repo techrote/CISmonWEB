@@ -69,7 +69,7 @@ export class ChimePlayer {
           this.clearTimer(timeout);
           if (!this.disposed) this.setStatus(ready ? "ready" : "blocked", ready
             ? "Audio is ready in this window."
-            : "Audio blocked. Click Enable audio; check this site's autoplay permission if it remains blocked.");
+            : "Audio blocked. Click Enable audio; check this site's autoplay permission and your audio output device if it remains blocked.");
           return ready;
         });
     } catch {
