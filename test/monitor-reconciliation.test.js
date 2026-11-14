@@ -468,3 +468,106 @@ test("checks remain active while any workflow for the SHA is live, and reruns re
   assert.equal(m.dueCheckTarget(Date.now()), target);
   assert.equal(target.active, true);
 });
+
+
+test("Clear stale targets only unconfirmed live parents, not fresh or completed runs", () => {
+  const m = monitor(async () => response({ total_count: 0, jobs: [] }));
+  const old = Date.now() - 180_000;
+  const stale = m.tracker.upsert(parseRun(rawRun(1, "in_progress"), "owner/project"), old);
+  stale.providerConfirmedAtMs = old;
+  const queued = m.tracker.upsert(parseRun(rawRun(2, "queued"), "owner/project"), old);
+  queued.providerConfirmedAtMs = old;
+  const fresh = m.tracker.upsert(parseRun(rawRun(3, "in_progress"), "owner/project"), Date.now());
+  fresh.providerConfirmedAtMs = Date.now();
+  const done = m.tracker.upsert(parseRun(rawRun(4, "completed"), "owner/project"), old);
+  done.providerConfirmedAtMs = old;
+  const unknown = m.tracker.upsert(parseRun(rawRun(5, "in_progress"), "owner/project"), old);
+  assert.equal(unknown.providerConfirmedAtMs, undefined);
+
+  const first = m.requestStaleReconciliation();
+  assert.equal(first.queued, 2);
+  assert.equal(first.totalStale, 2);
+  assert.deepEqual([...m.runReconciliations.keys()], ["owner/project#1", "owner/project#2"]);
+  assert.equal(m.tracker.find("owner/project", 1).snapshot.state, "in_progress",
+    "queueing must not change the provider's last confirmed state");
+  assert.equal(m.requestStaleReconciliation().alreadyPending, 2);
+  assert.equal(m.requestStaleReconciliation().queued, 0);
+});
+
+test("Clear stale uses the normal scheduler and direct success refreshes live-parent age", async () => {
+  const calls = [];
+  const m = monitor(async path => {
+    calls.push(path);
+    return response(rawRun(1, "in_progress"));
+  });
+  const old = Date.now() - 180_000;
+  const tracked = m.tracker.upsert(parseRun(rawRun(), "owner/project"), old);
+  tracked.providerConfirmedAtMs = old;
+  const first = m.requestStaleReconciliation();
+  assert.equal(first.queued, 1);
+  assert.equal(calls.length, 0, "request must only enqueue, never fetch out of band");
+  assert.equal(m.state().rows.find(row => row.runId === 1).providerDataStale, true);
+
+  await m.tick();
+  assert.deepEqual(calls, ["/repos/owner/project/actions/runs/1"]);
+  assert.equal(m.tracker.find("owner/project", 1).snapshot.state, "in_progress");
+  assert.ok(tracked.providerConfirmedAtMs > old, "the tracked entry owns the freshness clock");
+  assert.equal(m.state().rows.find(row => row.runId === 1).providerDataStale, false);
+});
+
+test("failed Clear stale confirmation retains evidence and repeated clicks preserve backoff", async () => {
+  let status = 502;
+  const calls = [];
+  const m = monitor(async path => {
+    calls.push(path);
+    return status === 200 ? response(rawRun(1, "completed")) : response(null, status);
+  });
+  const old = Date.now() - 180_000;
+  const tracked = m.tracker.upsert(parseRun(rawRun(), "owner/project"), old);
+  tracked.providerConfirmedAtMs = old;
+  assert.equal(m.requestStaleReconciliation().queued, 1);
+  await m.tick();
+  assert.equal(m.state().rows.find(row => row.runId === 1).providerDataStale, true);
+  assert.equal(m.tracker.find("owner/project", 1).snapshot.state, "in_progress");
+  const pending = m.runReconciliations.get("owner/project#1");
+  const retryAt = pending.nextPollMs;
+  assert.ok(retryAt > Date.now());
+  assert.equal(m.requestStaleReconciliation().alreadyPending, 1);
+  assert.equal(pending.nextPollMs, retryAt, "operator click must not bypass error backoff");
+  assert.equal(calls.length, 1);
+  status = 200;
+  pending.nextPollMs = 0;
+  m.activeDetailNextMs.set("owner/project#1", 0);
+  m.nextRequestAllowedMs = 0;
+  await m.tick();
+  assert.equal(m.tracker.find("owner/project", 1).snapshot.state, "completed");
+  assert.equal(m.state().trackedActiveCount, 0);
+  assert.equal(m.runReconciliations.size, 0);
+  assert.equal(m.activeDetailNextMs.size, 0);
+});
+
+test("Clear stale caps a batch and respects GitHub rate-limit pause", async () => {
+  const calls = [];
+  const m = monitor(async path => {
+    calls.push(path);
+    return response(rawRun(Number(path.split("/").at(-1)), "completed"));
+  });
+  const old = Date.now() - 180_000;
+  for (let id = 1; id <= 53; id++) {
+    const tracked = m.tracker.upsert(parseRun(rawRun(id), "owner/project"), old);
+    tracked.providerConfirmedAtMs = old;
+  }
+  m.rateLimitedUntilMs = Date.now() + 60_000;
+  const first = m.requestStaleReconciliation();
+  assert.deepEqual([first.queued, first.deferred, first.totalStale, first.rateLimited],
+    [50, 3, 53, true]);
+  assert.equal(m.requestStaleReconciliation().queued, 3,
+    "second click may queue deferred parents but never duplicate the first 50");
+  await m.tick();
+  assert.equal(calls.length, 0);
+  assert.equal(m.state().trackedActiveCount, 53);
+  m.rateLimitedUntilMs = 0;
+  await m.tick();
+  assert.equal(calls.length, 1, "exactly one scheduled provider GET after pause");
+  assert.equal(m.state().trackedActiveCount, 52);
+});

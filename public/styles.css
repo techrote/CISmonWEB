@@ -161,6 +161,8 @@ textarea { resize: vertical; }
 }
 .telemetry strong { font-size: 12px; font-weight: 700; }
 .toolbar { display: flex; gap: 7px; flex-wrap: wrap; justify-content: end; }
+.stale-clear-status { align-self: center; font-size: 10px; color: var(--muted); max-width: 260px; line-height: 1.4; }
+.button:disabled { opacity: .55; cursor: default; }
 
 .button, .icon-button, .surface-tab {
   border: 1px solid #4d5c61;

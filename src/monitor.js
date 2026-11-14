@@ -4,7 +4,7 @@ import {
   workflowActivitySummary, shouldKeepRepository, ACTIVITY_RECHECK_MS
 } from "./activity-selection.js";
 import { activeWorkerSummary, observedRunningJobs, observedRunState } from "./worker-summary.js";
-import { buildDashboard } from "./core/dashboard.js";
+import { buildDashboard, PARENT_STALE_MS } from "./core/dashboard.js";
 import { globMatch } from "./core/glob.js";
 import { PollPolicy } from "./core/poll-policy.js";
 import { RunState } from "./core/model.js";
@@ -23,6 +23,7 @@ const REQUEST_SPACING_MS = 1000;
 const BACKFILL_SPACING_MS = 1200;
 const FAST_SWEEP_BATCH_SIZE = 4;
 const ACTIVE_DETAIL_BURST_LIMIT = 1;
+const STALE_CLEAR_BATCH_LIMIT = 50;
 const MAX_LIVE_REPO_BURST = 2;
 const ERROR_VISIBLE_MS = 90000;
 const LIVE_FRESHNESS_WARNING_MS = 90000;
@@ -417,6 +418,40 @@ export class Monitor {
     });
   }
 
+  // An operator may prioritize existing stale parents, but must not bypass
+  // the ordinary single-request scheduler, rate-limit pause or error backoff.
+  requestStaleReconciliation(nowMs = Date.now()) {
+    const stale = this.tracker.all().filter(tracked => {
+      const confirmedAt = Number(tracked.providerConfirmedAtMs || 0);
+      return isLive(tracked.snapshot) && confirmedAt > 0 &&
+        nowMs - confirmedAt > PARENT_STALE_MS;
+    }).sort((a, b) => a.providerConfirmedAtMs - b.providerConfirmedAtMs);
+    let queued = 0;
+    let alreadyPending = 0;
+    for (const tracked of stale) {
+      const key = detailKey(tracked.snapshot);
+      const pending = this.runReconciliations.get(key);
+      if (pending) {
+        alreadyPending++;
+        // Do not reset failed confirmations or defeat exponential backoff.
+        this.activeDetailNextMs.set(key, Math.min(
+          this.activeDetailNextMs.get(key) ?? Infinity, Number(pending.nextPollMs || 0)
+        ));
+      } else if (queued < STALE_CLEAR_BATCH_LIMIT) {
+        this.runReconciliations.set(key, {
+          nextPollMs: 0, errors: 0, lastConfirmedAtMs: tracked.providerConfirmedAtMs
+        });
+        this.activeDetailNextMs.set(key, -1);
+        queued++;
+      }
+    }
+    return {
+      ok: true, queued, alreadyPending,
+      deferred: stale.length - queued - alreadyPending,
+      totalStale: stale.length, rateLimited: nowMs < this.rateLimitedUntilMs
+    };
+  }
+
   async refresh() {
     if (!this.providerReady) {
       // The scheduler owns API requests and rate-limit pauses. Repeated UI
@@ -788,7 +823,9 @@ export class Monitor {
       this.activeDetailErrors.delete(key);
     }
     run.providerConfirmedAtMs = receivedMs;
-    this.tracker.upsert(run, receivedMs);
+    const refreshed = this.tracker.upsert(run, receivedMs);
+    // buildDashboard uses the tracked entry, not only its snapshot, for age.
+    refreshed.providerConfirmedAtMs = receivedMs;
     if (run.event === "pull_request") this.enqueueCheckTarget(run);
     if (run.state === RunState.Completed) {
       this.runReconciliations.delete(key);
