@@ -211,6 +211,11 @@ The **Clear stale** button (next to **Rescan**) selects tracked live
 confirmation is older than two minutes. It queues **up to 50** direct parent
 rechecks per click. Already-pending checks are not duplicated, and API-error
 backoff is retained. Clicking again may enqueue additional deferred parents.
+Parent confirmations use a separate scheduler lane. While normal job-detail
+inspection is due, at most one direct parent recheck can run ahead of it.
+Parent rechecks do not reset job-detail retry cooldowns. A GitHub `304`
+retires redundant direct checks only for the same run attempts actually
+present in the last confirmed summary page; omitted runs remain pending.
 
 **Clear stale does not clear or dismiss evidence.** The button reports work
 queued in CISmonWEB's ordinary, rate-limited, fair scheduler; it does not

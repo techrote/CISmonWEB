@@ -571,3 +571,112 @@ test("Clear stale caps a batch and respects GitHub rate-limit pause", async () =
   assert.equal(calls.length, 1, "exactly one scheduled provider GET after pause");
   assert.equal(m.state().trackedActiveCount, 52);
 });
+
+
+test("304 summary confirmation retires manual rechecks for included parents but preserves omitted runs", async () => {
+  let status = 200;
+  const paths = [];
+  const m = monitor(async path => {
+    paths.push(path);
+    return response({ workflow_runs: [rawRun(1)] }, status);
+  });
+  const repo = repository();
+  m.repositories = [repo];
+  const first = m.tracker.upsert(parseRun(rawRun(1), repo.fullName), Date.now());
+  const omitted = m.tracker.upsert(parseRun(rawRun(2), repo.fullName), Date.now());
+  await m.pollRepository(repo, Date.now());
+  assert.equal(m.runReconciliations.has(repo.fullName + "#2"), true);
+  const old = Date.now() - 180_000;
+  first.providerConfirmedAtMs = old;
+  omitted.providerConfirmedAtMs = old;
+  assert.equal(m.requestStaleReconciliation().queued, 1);
+  assert.equal(m.runReconciliations.size, 2);
+  status = 304;
+  await m.pollRepository(repo, Date.now());
+  assert.equal(m.runReconciliations.has(repo.fullName + "#1"), false,
+    "included parent has an authoritative 304 confirmation");
+  assert.equal(m.runReconciliations.has(repo.fullName + "#2"), true,
+    "omitted parent must still be reconciled through its own endpoint");
+  assert.ok(first.providerConfirmedAtMs > old);
+  assert.equal(omitted.providerConfirmedAtMs, old);
+  assert.equal(paths.filter(path => path.endsWith("/actions/runs/1")).length, 0,
+    "redundant direct GET must not be issued");
+});
+
+test("304 from a cached older attempt cannot retire a newer direct-reconciliation request", async () => {
+  let status = 200;
+  const m = monitor(async () => response({ workflow_runs: [rawRun(1, "in_progress", 1)] }, status));
+  const repo = repository();
+  m.repositories = [repo];
+  await m.pollRepository(repo, Date.now());
+  const tracked = m.tracker.find(repo.fullName, 1);
+  m.tracker.upsert(parseRun(rawRun(1, "queued", 2), repo.fullName), Date.now());
+  const old = Date.now() - 180_000;
+  tracked.providerConfirmedAtMs = old;
+  assert.equal(m.requestStaleReconciliation().queued, 1);
+  status = 304;
+  await m.pollRepository(repo, Date.now());
+  assert.equal(tracked.snapshot.runAttempt, 2);
+  assert.equal(tracked.providerConfirmedAtMs, old);
+  assert.equal(m.runReconciliations.has(repo.fullName + "#1"), true,
+    "304 only confirms the attempt on its previously fetched page");
+});
+
+test("manual parent confirmation preserves independent job-detail error cooldown", async () => {
+  const calls = [];
+  const m = monitor(async path => {
+    calls.push(path);
+    return response(rawRun());
+  });
+  const old = Date.now() - 180_000;
+  const tracked = m.tracker.upsert(parseRun(rawRun(), "owner/project"), old);
+  tracked.providerConfirmedAtMs = old;
+  const key = "owner/project#1";
+  const jobNext = Date.now() + 120_000;
+  m.activeDetailErrors.set(key, 3);
+  m.activeDetailNextMs.set(key, jobNext);
+  assert.equal(m.requestStaleReconciliation().queued, 1);
+  assert.equal(m.activeDetailNextMs.get(key), jobNext);
+  await m.tick();
+  assert.deepEqual(calls, ["/repos/owner/project/actions/runs/1"]);
+  assert.equal(m.activeDetailNextMs.get(key), jobNext);
+  assert.equal(m.activeDetailErrors.get(key), 3,
+    "successful parent status check must not erase job endpoint failures");
+  m.nextRequestAllowedMs = 0;
+  await m.tick();
+  assert.equal(calls.length, 1, "job-detail GET must wait for the existing cooldown");
+  assert.equal(m.state().rows.find(row => row.runId === 1).providerDataStale, false);
+});
+
+test("50 parent rechecks interleave with unrelated due job reads", async () => {
+  const calls = [];
+  const m = monitor(async path => {
+    calls.push(path);
+    if (path.includes("/jobs?")) return response({ total_count: 0, jobs: [] });
+    const id = Number(path.split("/").at(-1));
+    return response(rawRun(id, "in_progress"));
+  });
+  const old = Date.now() - 180_000;
+  for (let id = 1; id <= 50; id++) {
+    const tracked = m.tracker.upsert(parseRun(rawRun(id), "owner/project"), old);
+    tracked.providerConfirmedAtMs = old;
+    // The operators request parent confirmation, not an early job refresh.
+    m.activeDetailNextMs.set("owner/project#" + id, Date.now() + 120_000);
+  }
+  for (let id = 101; id <= 110; id++) {
+    const tracked = m.tracker.upsert(parseRun(rawRun(id), "owner/project"), Date.now());
+    tracked.providerConfirmedAtMs = Date.now();
+    m.activeDetailNextMs.set("owner/project#" + id, 0);
+  }
+  assert.equal(m.requestStaleReconciliation().queued, 50);
+  for (let i = 0; i < 20; i++) {
+    m.nextRequestAllowedMs = 0; // simulate scheduler ticks after normal spacing
+    await m.tick();
+  }
+  assert.equal(calls.length, 20);
+  assert.deepEqual(calls.map(path => path.includes("/jobs?") ? "job" : "parent"),
+    Array.from({ length: 20 }, (_, i) => i % 2 ? "job" : "parent"),
+    "a 50-parent batch must not postpone an already-due job by more than one recheck");
+  assert.equal(m.runReconciliations.size, 50,
+    "running parents remain monitored after a successful direct confirmation");
+});
