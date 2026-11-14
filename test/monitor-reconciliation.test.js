@@ -537,7 +537,9 @@ test("failed Clear stale confirmation retains evidence and repeated clicks prese
   assert.equal(calls.length, 1);
   status = 200;
   pending.nextPollMs = 0;
-  m.activeDetailNextMs.set("owner/project#1", 0);
+  // The parent retry has its own lane; preserve the independent job-detail
+  // cooldown rather than artificially making a job read compete with it.
+  m.activeDetailNextMs.set("owner/project#1", Date.now() + 60_000);
   m.nextRequestAllowedMs = 0;
   await m.tick();
   assert.equal(m.tracker.find("owner/project", 1).snapshot.state, "completed");
