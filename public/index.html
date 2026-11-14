@@ -31,6 +31,9 @@
 
     <div class="toolbar">
       <button id="refreshButton" class="button secondary" type="button">Rescan</button>
+      <button id="clearStaleButton" class="button secondary" type="button" disabled
+        title="Queue GitHub rechecks of outdated workflow statuses (up to 50 per click). Never cancels or dismisses a run.">Clear stale</button>
+      <span id="clearStaleStatus" class="stale-clear-status" role="status" aria-live="polite"></span>
       <button id="fullscreenButton" class="button secondary" type="button">Fullscreen</button>
       <button id="borderlessButton" class="button secondary" type="button">Surface only</button>
       <button id="popupButton" class="button secondary" type="button" title="Minimal popup; Firefox may keep a read-only address bar">Popup</button>

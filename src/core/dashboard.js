@@ -2,6 +2,9 @@ import { AttentionLevel, RunState, baselineKey, isTerminal } from "./model.js";
 import { runExecutionElapsedMs } from "./analyzer.js";
 import { hasFreshJobDetails, jobActivitySummary, observedRunState } from "../worker-summary.js";
 
+// A single authoritative freshness threshold for presentation and manual rechecks.
+export const PARENT_STALE_MS = 120_000;
+
 function attentionRank(level) {
   if (level === AttentionLevel.ActionRequired) return 4;
   if (level === AttentionLevel.Suspicious) return 3;
@@ -108,7 +111,7 @@ export function buildDashboard(
       // Completed runs are historical records, not stale live workflows.
       providerDataStale: run.state !== RunState.Completed &&
         !!tracked.providerConfirmedAtMs &&
-        nowMs - tracked.providerConfirmedAtMs > 120_000,
+        nowMs - tracked.providerConfirmedAtMs > PARENT_STALE_MS,
       conclusion: run.conclusion,
       attention: AttentionLevel.Normal,
       confidence: "none",

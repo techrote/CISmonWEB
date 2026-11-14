@@ -210,6 +210,14 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true });
     }
 
+    if (req.method === "POST" && url.pathname === "/api/clear-stale") {
+      await readJson(req);
+      if (!monitor.providerReady || monitor.pendingProviderUpdates) {
+        throw new HttpError(503, "GitHub monitor not ready; no stale rechecks queued");
+      }
+      return json(res, 200, monitor.requestStaleReconciliation());
+    }
+
     if (req.method === "POST" && url.pathname === "/api/acknowledge") {
       const body = await readJson(req);
       const runAttempt = body.runAttempt === undefined ? 1 : body.runAttempt;

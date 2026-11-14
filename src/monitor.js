@@ -4,7 +4,7 @@ import {
   workflowActivitySummary, shouldKeepRepository, ACTIVITY_RECHECK_MS
 } from "./activity-selection.js";
 import { activeWorkerSummary, observedRunningJobs, observedRunState } from "./worker-summary.js";
-import { buildDashboard } from "./core/dashboard.js";
+import { buildDashboard, PARENT_STALE_MS } from "./core/dashboard.js";
 import { globMatch } from "./core/glob.js";
 import { PollPolicy } from "./core/poll-policy.js";
 import { RunState } from "./core/model.js";
@@ -13,6 +13,7 @@ import { GitHubClient, parseJob, parseRun } from "./github.js";
 import {
   activityTimeFromGitHub,
   dueActiveRun,
+  dueRunReconciliation,
   duePriorityRepository,
   shouldServiceActive,
   takeSweepBatch
@@ -23,6 +24,8 @@ const REQUEST_SPACING_MS = 1000;
 const BACKFILL_SPACING_MS = 1200;
 const FAST_SWEEP_BATCH_SIZE = 4;
 const ACTIVE_DETAIL_BURST_LIMIT = 1;
+const STALE_CLEAR_BATCH_LIMIT = 50;
+const MAX_CONSECUTIVE_RECONCILIATIONS = 1;
 const MAX_LIVE_REPO_BURST = 2;
 const ERROR_VISIBLE_MS = 90000;
 const LIVE_FRESHNESS_WARNING_MS = 90000;
@@ -84,6 +87,7 @@ export class Monitor {
     this.fastSweepReason = "";
     this.activeDetailStreak = 0;
     this.liveRepoStreak = 0;
+    this.reconciliationStreak = 0;
     this.lastSchedulerAction = "idle";
     this.nextRequestAllowedMs = 0;
     this.rateLimitedUntilMs = 0;
@@ -386,6 +390,7 @@ export class Monitor {
       this.fastSweepReason = "";
       this.activeDetailStreak = 0;
       this.liveRepoStreak = 0;
+      this.reconciliationStreak = 0;
       this.providerReady = false;
       this.lastSuccessfulSummaryAtMs = 0;
       this.lastError = "";
@@ -415,6 +420,38 @@ export class Monitor {
       this.config = await this.configStore.update(patch);
       return this.configStore.publicConfig();
     });
+  }
+
+  // An operator may prioritize existing stale parents, but must not bypass
+  // the ordinary single-request scheduler, rate-limit pause or error backoff.
+  requestStaleReconciliation(nowMs = Date.now()) {
+    const stale = this.tracker.all().filter(tracked => {
+      const confirmedAt = Number(tracked.providerConfirmedAtMs || 0);
+      return isLive(tracked.snapshot) && confirmedAt > 0 &&
+        nowMs - confirmedAt > PARENT_STALE_MS;
+    }).sort((a, b) => a.providerConfirmedAtMs - b.providerConfirmedAtMs);
+    let queued = 0;
+    let alreadyPending = 0;
+    for (const tracked of stale) {
+      const key = detailKey(tracked.snapshot);
+      const pending = this.runReconciliations.get(key);
+      if (pending) {
+        // Repeated clicks never advance parent or job-detail error cooldowns.
+        alreadyPending++;
+      } else if (queued < STALE_CLEAR_BATCH_LIMIT) {
+        this.runReconciliations.set(key, {
+          nextPollMs: 0, errors: 0, lastConfirmedAtMs: tracked.providerConfirmedAtMs
+        });
+        // Direct status checks have their own scheduler lane.
+        // Do not alter the job-detail due time.
+        queued++;
+      }
+    }
+    return {
+      ok: true, queued, alreadyPending,
+      deferred: stale.length - queued - alreadyPending,
+      totalStale: stale.length, rateLimited: nowMs < this.rateLimitedUntilMs
+    };
   }
 
   async refresh() {
@@ -602,7 +639,15 @@ export class Monitor {
       // not confirm status for older runs absent from that page.
       for (const runId of repo.lastSummaryRunIds || []) {
         const tracked = this.tracker.find(repo.fullName, runId);
-        if (tracked) tracked.providerConfirmedAtMs = receivedMs;
+        const summaryAttempt = repo.lastSummaryRunAttempts?.get(runId);
+        // A 304 covers the cached page, not an independently discovered
+        // newer run attempt nor any run missing from that page.
+        if (!tracked || (summaryAttempt !== undefined &&
+            attemptNumber(tracked.snapshot) !== summaryAttempt)) continue;
+        tracked.providerConfirmedAtMs = receivedMs;
+        const key = detailKey(tracked.snapshot);
+        this.runReconciliations.delete(key);
+        this.clearFailure("run:" + key);
       }
       repo.errors = 0;
       repo.successfulPollCount += 1;
@@ -633,6 +678,7 @@ export class Monitor {
     let backfillQueued = 0;
     const seen = new Set();
     const lastSummaryRunIds = new Set();
+    const lastSummaryRunAttempts = new Map();
 
     for (const raw of response.json.workflow_runs || []) {
       const run = parseRun(raw, repo.fullName);
@@ -647,6 +693,7 @@ export class Monitor {
       this.runReconciliations.delete(key);
       this.clearFailure("run:" + key);
       lastSummaryRunIds.add(run.runId);
+      lastSummaryRunAttempts.set(run.runId, attemptNumber(run));
       newestUpdated = Math.max(newestUpdated, run.updatedAtEpoch);
       if (run.event === "pull_request" &&
           (run.state === RunState.InProgress || run.state === RunState.Queued)) {
@@ -700,13 +747,15 @@ export class Monitor {
           lastConfirmedAtMs: Math.max(run.providerConfirmedAtMs || 0,
             previousConfirmationMs || 0, tracked.firstSeenMs || 0)
         });
-        this.activeDetailNextMs.set(key, 0);
+        // Omission schedules a parent check; preserve any job-detail cooldown.
+        if (!this.activeDetailNextMs.has(key)) this.activeDetailNextMs.set(key, 0);
       }
       if (run.state === RunState.InProgress || observedRunningJobs(run, receivedMs).length) hasActive = true;
       if (run.state === RunState.Queued) hasQueued = true;
     }
 
     repo.lastSummaryRunIds = lastSummaryRunIds;
+    repo.lastSummaryRunAttempts = lastSummaryRunAttempts;
     if (repo.latestUpdatedEpoch !== newestUpdated) {
       repo.latestUpdatedEpoch = newestUpdated;
       repo.lastActivityMs = activityTimeFromGitHub(newestUpdated, Date.now());
@@ -786,9 +835,15 @@ export class Monitor {
     if (attemptNumber(run) !== attemptNumber(previous)) {
       this.liveJobScans.delete(key);
       this.activeDetailErrors.delete(key);
+      // Job-detail failures and their retry deadline belong to the previous
+      // attempt. The newly confirmed attempt must be eligible for its first
+      // job inspection in the next ordinary scheduler slot.
+      this.activeDetailNextMs.set(key, 0);
     }
     run.providerConfirmedAtMs = receivedMs;
-    this.tracker.upsert(run, receivedMs);
+    const refreshed = this.tracker.upsert(run, receivedMs);
+    // buildDashboard uses the tracked entry, not only its snapshot, for age.
+    refreshed.providerConfirmedAtMs = receivedMs;
     if (run.event === "pull_request") this.enqueueCheckTarget(run);
     if (run.state === RunState.Completed) {
       this.runReconciliations.delete(key);
@@ -908,20 +963,16 @@ export class Monitor {
     return true;
   }
 
-  async serviceLiveDetail(tracked, nowMs) {
+  async serviceLiveDetail(tracked, nowMs, task = "auto") {
     const generation = this.providerGeneration;
     const run = tracked.snapshot;
     const key = detailKey(run);
     const pending = this.runReconciliations.get(key);
-    if (pending && pending.nextPollMs <= nowMs) {
+    if (task !== "jobs" && pending && pending.nextPollMs <= nowMs) {
       await this.reconcileRun(tracked);
       if (generation !== this.providerGeneration) return;
-      const current = this.tracker.find(run.repository, run.runId)?.snapshot;
-      if (current && isLive(current)) {
-        // Confirming the parent does not also fetch jobs. Let the next normal
-        // detail slot do that, preserving one request per scheduler tick.
-        this.activeDetailNextMs.set(key, this.liveJobScans.has(key) ? -1 : 0);
-      }
+      // Parent confirmation cannot reset the independent job-detail cooldown.
+      this.reconciliationStreak++;
       this.activeDetailStreak++;
       this.lastSchedulerAction = "run-reconcile:" + key;
       this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
@@ -929,6 +980,7 @@ export class Monitor {
     }
     const ok = await this.fetchRunDetails(run, nowMs, false);
     if (generation !== this.providerGeneration) return;
+    this.reconciliationStreak = 0;
     const current = this.tracker.find(run.repository, run.runId)?.snapshot;
     if (!current || !isLive(current) || attemptNumber(current) !== attemptNumber(run)) return;
     const errors = ok ? 0 : (this.activeDetailErrors.get(key) || 0) + 1;
@@ -941,9 +993,8 @@ export class Monitor {
         ? this.policy.activeMs : this.policy.queuedMs;
     // A partially scanned matrix can hide its active jobs on later pages.
     // Continue immediately (subject to the global API spacing/fairness rule).
-    const nextSummary = this.runReconciliations.get(key)?.nextPollMs ?? Infinity;
     this.activeDetailNextMs.set(key, ok && this.liveJobScans.has(key) ? -1 :
-      Math.min(Date.now() + interval, nextSummary));
+      Date.now() + interval);
     this.activeDetailStreak += 1;
     this.lastSchedulerAction = "live-detail:" + key;
     this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
@@ -990,7 +1041,14 @@ export class Monitor {
         this.nextRequestAllowedMs = Date.now() + REQUEST_SPACING_MS;
         return;
       }
-      const active = dueActiveRun(this.tracker.all(), this.activeDetailNextMs, nowMs, detailKey);
+      const trackedRuns = this.tracker.all();
+      const dueJobs = dueActiveRun(trackedRuns, this.activeDetailNextMs, nowMs, detailKey);
+      const dueParent = dueRunReconciliation(trackedRuns, this.runReconciliations, nowMs, detailKey);
+      // Interleave: at most one parent confirmation ahead of a due job read.
+      const checkParent = !!dueParent && (!dueJobs ||
+        this.reconciliationStreak < MAX_CONSECUTIVE_RECONCILIATIONS);
+      const active = checkParent ? dueParent : dueJobs;
+      const activeTask = checkParent ? "reconcile" : "jobs";
       const repo = duePriorityRepository(
         this.repositories, nowMs, this.liveRepoStreak, MAX_LIVE_REPO_BURST
       );
@@ -1008,7 +1066,7 @@ export class Monitor {
       }
 
       if (shouldServiceActive(active, repo, this.activeDetailStreak, ACTIVE_DETAIL_BURST_LIMIT)) {
-        await this.serviceLiveDetail(active, nowMs);
+        await this.serviceLiveDetail(active, nowMs, activeTask);
         if (generation !== this.providerGeneration) return;
         this.normalRequestsSinceActivityProbe++;
         this.normalRequestsSinceCheck++;
@@ -1029,7 +1087,7 @@ export class Monitor {
       }
 
       if (active) {
-        await this.serviceLiveDetail(active, nowMs);
+        await this.serviceLiveDetail(active, nowMs, activeTask);
         return;
       }
 

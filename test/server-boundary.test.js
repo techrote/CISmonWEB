@@ -166,3 +166,20 @@ test("an unavailable artwork asset returns an HTTP failure without terminating t
     assert.equal((await fetch(base + "/api/state")).status, 200);
   }
 });
+
+
+test("Clear stale HTTP route enforces local-origin JSON boundary and provider readiness", async (t) => {
+  const { base } = await startServer(t);
+  const post = (headers, body = "{}") => request(base, "/api/clear-stale", {
+    method: "POST", headers, chunks: [body]
+  });
+  assert.equal((await post({ "Content-Type": "text/plain" })).status, 415);
+  assert.equal((await post({
+    "Content-Type": "application/json", Origin: "https://untrusted.example"
+  })).status, 403);
+  assert.equal((await post({ "Content-Type": "application/json" }, "[]")).status, 400);
+  const unavailable = await post({ "Content-Type": "application/json" });
+  assert.equal(unavailable.status, 503, "without a provider rechecks cannot be queued");
+  assert.match(JSON.parse(unavailable.text).error, /not ready/);
+  assert.equal((await fetch(base + "/api/state")).status, 200);
+});

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   dueActiveRun,
+  dueRunReconciliation,
   dueRepository,
   shouldServiceActive,
   takeSweepBatch
@@ -50,4 +51,26 @@ test("startup sweep batches preserve queue order and remove serviced entries", (
   const first = takeSweepBatch(queue, repos, 3);
   assert.deepEqual(first.map((repo) => repo.fullName), ["a", "b", "c"]);
   assert.deepEqual(queue, ["d"]);
+});
+
+
+test("direct parent reconciliation scheduling is independent of job-detail cooldowns", () => {
+  const tracked = [1, 2, 3].map(runId => ({
+    snapshot: { repository: "owner/project", runId, state: "in_progress" }
+  }));
+  const pending = new Map([
+    ["owner/project#1", { nextPollMs: 0 }],
+    ["owner/project#2", { nextPollMs: 50000 }],
+    ["owner/project#3", { nextPollMs: 0 }]
+  ]);
+  const jobs = new Map([
+    ["owner/project#1", 90000],
+    ["owner/project#2", 0],
+    ["owner/project#3", 90000]
+  ]);
+  assert.equal(dueRunReconciliation(tracked, pending, 10000, keyForRun).snapshot.runId, 1);
+  assert.equal(dueActiveRun(tracked, jobs, 10000, keyForRun).snapshot.runId, 2);
+  pending.delete("owner/project#1");
+  assert.equal(dueRunReconciliation(tracked, pending, 10000, keyForRun).snapshot.runId, 3);
+  assert.equal(dueRunReconciliation(tracked, pending, -1, keyForRun), null);
 });

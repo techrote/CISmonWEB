@@ -468,3 +468,266 @@ test("checks remain active while any workflow for the SHA is live, and reruns re
   assert.equal(m.dueCheckTarget(Date.now()), target);
   assert.equal(target.active, true);
 });
+
+
+test("Clear stale targets only unconfirmed live parents, not fresh or completed runs", () => {
+  const m = monitor(async () => response({ total_count: 0, jobs: [] }));
+  const old = Date.now() - 180_000;
+  const stale = m.tracker.upsert(parseRun(rawRun(1, "in_progress"), "owner/project"), old);
+  stale.providerConfirmedAtMs = old;
+  const queued = m.tracker.upsert(parseRun(rawRun(2, "queued"), "owner/project"), old);
+  queued.providerConfirmedAtMs = old;
+  const fresh = m.tracker.upsert(parseRun(rawRun(3, "in_progress"), "owner/project"), Date.now());
+  fresh.providerConfirmedAtMs = Date.now();
+  const done = m.tracker.upsert(parseRun(rawRun(4, "completed"), "owner/project"), old);
+  done.providerConfirmedAtMs = old;
+  const unknown = m.tracker.upsert(parseRun(rawRun(5, "in_progress"), "owner/project"), old);
+  assert.equal(unknown.providerConfirmedAtMs, undefined);
+
+  const first = m.requestStaleReconciliation();
+  assert.equal(first.queued, 2);
+  assert.equal(first.totalStale, 2);
+  assert.deepEqual([...m.runReconciliations.keys()], ["owner/project#1", "owner/project#2"]);
+  assert.equal(m.tracker.find("owner/project", 1).snapshot.state, "in_progress",
+    "queueing must not change the provider's last confirmed state");
+  assert.equal(m.requestStaleReconciliation().alreadyPending, 2);
+  assert.equal(m.requestStaleReconciliation().queued, 0);
+});
+
+test("Clear stale uses the normal scheduler and direct success refreshes live-parent age", async () => {
+  const calls = [];
+  const m = monitor(async path => {
+    calls.push(path);
+    return response(rawRun(1, "in_progress"));
+  });
+  const old = Date.now() - 180_000;
+  const tracked = m.tracker.upsert(parseRun(rawRun(), "owner/project"), old);
+  tracked.providerConfirmedAtMs = old;
+  const first = m.requestStaleReconciliation();
+  assert.equal(first.queued, 1);
+  assert.equal(calls.length, 0, "request must only enqueue, never fetch out of band");
+  assert.equal(m.state().rows.find(row => row.runId === 1).providerDataStale, true);
+
+  await m.tick();
+  assert.deepEqual(calls, ["/repos/owner/project/actions/runs/1"]);
+  assert.equal(m.tracker.find("owner/project", 1).snapshot.state, "in_progress");
+  assert.ok(tracked.providerConfirmedAtMs > old, "the tracked entry owns the freshness clock");
+  assert.equal(m.state().rows.find(row => row.runId === 1).providerDataStale, false);
+});
+
+test("failed Clear stale confirmation retains evidence and repeated clicks preserve backoff", async () => {
+  let status = 502;
+  const calls = [];
+  const m = monitor(async path => {
+    calls.push(path);
+    return status === 200 ? response(rawRun(1, "completed")) : response(null, status);
+  });
+  const old = Date.now() - 180_000;
+  const tracked = m.tracker.upsert(parseRun(rawRun(), "owner/project"), old);
+  tracked.providerConfirmedAtMs = old;
+  assert.equal(m.requestStaleReconciliation().queued, 1);
+  await m.tick();
+  assert.equal(m.state().rows.find(row => row.runId === 1).providerDataStale, true);
+  assert.equal(m.tracker.find("owner/project", 1).snapshot.state, "in_progress");
+  const pending = m.runReconciliations.get("owner/project#1");
+  const retryAt = pending.nextPollMs;
+  assert.ok(retryAt > Date.now());
+  assert.equal(m.requestStaleReconciliation().alreadyPending, 1);
+  assert.equal(pending.nextPollMs, retryAt, "operator click must not bypass error backoff");
+  assert.equal(calls.length, 1);
+  status = 200;
+  pending.nextPollMs = 0;
+  // The parent retry has its own lane; preserve the independent job-detail
+  // cooldown rather than artificially making a job read compete with it.
+  m.activeDetailNextMs.set("owner/project#1", Date.now() + 60_000);
+  m.nextRequestAllowedMs = 0;
+  await m.tick();
+  assert.equal(m.tracker.find("owner/project", 1).snapshot.state, "completed");
+  assert.equal(m.state().trackedActiveCount, 0);
+  assert.equal(m.runReconciliations.size, 0);
+  assert.equal(m.activeDetailNextMs.size, 0);
+});
+
+test("Clear stale caps a batch and respects GitHub rate-limit pause", async () => {
+  const calls = [];
+  const m = monitor(async path => {
+    calls.push(path);
+    return response(rawRun(Number(path.split("/").at(-1)), "completed"));
+  });
+  const old = Date.now() - 180_000;
+  for (let id = 1; id <= 53; id++) {
+    const tracked = m.tracker.upsert(parseRun(rawRun(id), "owner/project"), old);
+    tracked.providerConfirmedAtMs = old;
+  }
+  m.rateLimitedUntilMs = Date.now() + 60_000;
+  const first = m.requestStaleReconciliation();
+  assert.deepEqual([first.queued, first.deferred, first.totalStale, first.rateLimited],
+    [50, 3, 53, true]);
+  assert.equal(m.requestStaleReconciliation().queued, 3,
+    "second click may queue deferred parents but never duplicate the first 50");
+  await m.tick();
+  assert.equal(calls.length, 0);
+  assert.equal(m.state().trackedActiveCount, 53);
+  m.rateLimitedUntilMs = 0;
+  await m.tick();
+  assert.equal(calls.length, 1, "exactly one scheduled provider GET after pause");
+  assert.equal(m.state().trackedActiveCount, 52);
+});
+
+
+test("304 summary confirmation retires manual rechecks for included parents but preserves omitted runs", async () => {
+  let status = 200;
+  const paths = [];
+  const m = monitor(async path => {
+    paths.push(path);
+    return response({ workflow_runs: [rawRun(1)] }, status);
+  });
+  const repo = repository();
+  m.repositories = [repo];
+  const first = m.tracker.upsert(parseRun(rawRun(1), repo.fullName), Date.now());
+  const omitted = m.tracker.upsert(parseRun(rawRun(2), repo.fullName), Date.now());
+  await m.pollRepository(repo, Date.now());
+  assert.equal(m.runReconciliations.has(repo.fullName + "#2"), true);
+  const old = Date.now() - 180_000;
+  first.providerConfirmedAtMs = old;
+  omitted.providerConfirmedAtMs = old;
+  assert.equal(m.requestStaleReconciliation().queued, 1);
+  assert.equal(m.runReconciliations.size, 2);
+  status = 304;
+  await m.pollRepository(repo, Date.now());
+  assert.equal(m.runReconciliations.has(repo.fullName + "#1"), false,
+    "included parent has an authoritative 304 confirmation");
+  assert.equal(m.runReconciliations.has(repo.fullName + "#2"), true,
+    "omitted parent must still be reconciled through its own endpoint");
+  assert.ok(first.providerConfirmedAtMs > old);
+  assert.equal(omitted.providerConfirmedAtMs, old);
+  assert.equal(paths.filter(path => path.endsWith("/actions/runs/1")).length, 0,
+    "redundant direct GET must not be issued");
+});
+
+test("304 from a cached older attempt cannot retire a newer direct-reconciliation request", async () => {
+  let status = 200;
+  const m = monitor(async () => response({ workflow_runs: [rawRun(1, "in_progress", 1)] }, status));
+  const repo = repository();
+  m.repositories = [repo];
+  await m.pollRepository(repo, Date.now());
+  const tracked = m.tracker.find(repo.fullName, 1);
+  m.tracker.upsert(parseRun(rawRun(1, "queued", 2), repo.fullName), Date.now());
+  const old = Date.now() - 180_000;
+  tracked.providerConfirmedAtMs = old;
+  assert.equal(m.requestStaleReconciliation().queued, 1);
+  status = 304;
+  await m.pollRepository(repo, Date.now());
+  assert.equal(tracked.snapshot.runAttempt, 2);
+  assert.equal(tracked.providerConfirmedAtMs, old);
+  assert.equal(m.runReconciliations.has(repo.fullName + "#1"), true,
+    "304 only confirms the attempt on its previously fetched page");
+});
+
+test("manual parent confirmation preserves independent job-detail error cooldown", async () => {
+  const calls = [];
+  const m = monitor(async path => {
+    calls.push(path);
+    return response(rawRun());
+  });
+  const old = Date.now() - 180_000;
+  const tracked = m.tracker.upsert(parseRun(rawRun(), "owner/project"), old);
+  tracked.providerConfirmedAtMs = old;
+  const key = "owner/project#1";
+  const jobNext = Date.now() + 120_000;
+  m.activeDetailErrors.set(key, 3);
+  m.activeDetailNextMs.set(key, jobNext);
+  assert.equal(m.requestStaleReconciliation().queued, 1);
+  assert.equal(m.activeDetailNextMs.get(key), jobNext);
+  await m.tick();
+  assert.deepEqual(calls, ["/repos/owner/project/actions/runs/1"]);
+  assert.equal(m.activeDetailNextMs.get(key), jobNext);
+  assert.equal(m.activeDetailErrors.get(key), 3,
+    "successful parent status check must not erase job endpoint failures");
+  m.nextRequestAllowedMs = 0;
+  await m.tick();
+  assert.equal(calls.length, 1, "job-detail GET must wait for the existing cooldown");
+  assert.equal(m.state().rows.find(row => row.runId === 1).providerDataStale, false);
+});
+
+test("50 parent rechecks interleave with unrelated due job reads", async () => {
+  const calls = [];
+  const m = monitor(async path => {
+    calls.push(path);
+    if (path.includes("/jobs?")) return response({ total_count: 0, jobs: [] });
+    const id = Number(path.split("/").at(-1));
+    return response(rawRun(id, "in_progress"));
+  });
+  const old = Date.now() - 180_000;
+  for (let id = 1; id <= 50; id++) {
+    const tracked = m.tracker.upsert(parseRun(rawRun(id), "owner/project"), old);
+    tracked.providerConfirmedAtMs = old;
+    // The operators request parent confirmation, not an early job refresh.
+    m.activeDetailNextMs.set("owner/project#" + id, Date.now() + 120_000);
+  }
+  for (let id = 101; id <= 110; id++) {
+    const tracked = m.tracker.upsert(parseRun(rawRun(id), "owner/project"), Date.now());
+    tracked.providerConfirmedAtMs = Date.now();
+    m.activeDetailNextMs.set("owner/project#" + id, 0);
+  }
+  assert.equal(m.requestStaleReconciliation().queued, 50);
+  for (let i = 0; i < 20; i++) {
+    m.nextRequestAllowedMs = 0; // simulate scheduler ticks after normal spacing
+    await m.tick();
+  }
+  assert.equal(calls.length, 20);
+  assert.deepEqual(calls.map(path => path.includes("/jobs?") ? "job" : "parent"),
+    Array.from({ length: 20 }, (_, i) => i % 2 ? "job" : "parent"),
+    "a 50-parent batch must not postpone an already-due job by more than one recheck");
+  assert.equal(m.runReconciliations.size, 50,
+    "running parents remain monitored after a successful direct confirmation");
+});
+
+
+test("direct reconciliation clears a previous attempt's job cooldown only for the new attempt", async () => {
+  const paths = [];
+  const m = monitor(async path => {
+    paths.push(path);
+    if (path.endsWith("/actions/runs/1")) {
+      return response(rawRun(1, "queued", 2));
+    }
+    if (path.includes("/jobs?")) return response({ total_count: 0, jobs: [] });
+    throw new Error("unexpected GitHub request: " + path);
+  });
+  const repo = "owner/project";
+  const key = repo + "#1";
+  const old = Date.now() - 180_000;
+  const tracked = m.tracker.upsert({
+    ...parseRun(rawRun(1, "in_progress", 1), repo),
+    jobs: [{ id: 900, state: "in_progress" }],
+    jobsFetchedAtMs: Date.now(),
+    jobsCoverageComplete: true
+  }, old);
+  tracked.providerConfirmedAtMs = old;
+  const oldAttemptCooldown = Date.now() + 600_000;
+  m.activeDetailNextMs.set(key, oldAttemptCooldown);
+  m.activeDetailErrors.set(key, 6);
+  m.liveJobScans.set(key, { page: 2 });
+  assert.equal(m.requestStaleReconciliation().queued, 1);
+  assert.equal(m.activeDetailNextMs.get(key), oldAttemptCooldown,
+    "requesting a parent recheck must not itself change job retry timing");
+
+  await m.tick();
+  assert.deepEqual(paths, ["/repos/owner/project/actions/runs/1"]);
+  const current = m.tracker.find(repo, 1).snapshot;
+  assert.equal(current.runAttempt, 2);
+  assert.equal(current.state, "queued");
+  assert.deepEqual(current.jobs, []);
+  assert.equal(current.jobsFetchedAtMs, 0);
+  assert.equal(m.activeDetailErrors.has(key), false);
+  assert.equal(m.liveJobScans.has(key), false);
+  assert.equal(m.activeDetailNextMs.get(key), 0,
+    "a new attempt cannot inherit the previous attempt's 10-minute cooldown");
+
+  m.nextRequestAllowedMs = 0; // advance to the next ordinary API scheduler slot
+  await m.tick();
+  assert.equal(paths.length, 2);
+  assert.equal(paths[1],
+    "/repos/owner/project/actions/runs/1/attempts/2/jobs?per_page=100&page=1",
+    "first job inspection must target the new attempt, starting at page 1");
+});

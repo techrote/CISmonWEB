@@ -161,6 +161,8 @@ textarea { resize: vertical; }
 }
 .telemetry strong { font-size: 12px; font-weight: 700; }
 .toolbar { display: flex; gap: 7px; flex-wrap: wrap; justify-content: end; }
+.stale-clear-status { align-self: center; font-size: 10px; color: var(--muted); max-width: 260px; line-height: 1.4; }
+.button:disabled { opacity: .55; cursor: default; }
 
 .button, .icon-button, .surface-tab {
   border: 1px solid #4d5c61;
@@ -465,7 +467,9 @@ body.surface-hide-chrome main { padding-top: 10px; }
 
 @media (max-width: 700px) {
   .topbar { padding: 10px; gap: 10px; position: static; }
-  .toolbar { justify-self: end; }
+  .topbar { grid-template-columns: minmax(0, 1fr); }
+  .toolbar { grid-column: 1; justify-self: stretch; justify-content: flex-start; min-width: 0; }
+  .telemetry { grid-row: auto; grid-column: 1; }
   .button { padding: 8px 9px; }
   .telemetry { overflow-x: auto; }
   .surfacebar { position: static; flex-direction: column; }

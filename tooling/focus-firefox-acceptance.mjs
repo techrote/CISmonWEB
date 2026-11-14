@@ -172,6 +172,68 @@ try {
     "live provider state must still surface stale evidence");
   console.log("PASS Firefox Focus initial provider/job/source presentation");
 
+  // Dedicated Firefox acceptance for Clear stale: a local API fixture emulates
+  // provider confirmations, while the real toolbar and rendering code run.
+  const originalQueued = structuredClone(rows[1]);
+  let clearClicks = 0;
+  await page.route("**/api/clear-stale", async route => {
+    clearClicks++;
+    assert.equal(route.request().method(), "POST");
+    assert.deepEqual(route.request().postDataJSON(), {});
+    await route.fulfill({
+      status: 200, contentType: "application/json",
+      body: JSON.stringify(clearClicks === 1
+        ? { queued: 1, alreadyPending: 0, deferred: 0, rateLimited: false }
+        : { queued: 0, alreadyPending: 1, deferred: 0, rateLimited: false })
+    });
+  });
+  assert.equal(await page.locator("#clearStaleButton").isEnabled(), true);
+  await page.locator("#clearStaleButton").click();
+  await page.waitForFunction(() => document.querySelector("#clearStaleStatus")
+    .textContent.includes("1 new recheck(s) queued"));
+  assert.match(await page.locator("#clearStaleStatus").innerText(), /after GitHub confirms/);
+  assert.equal(await queued.locator(".focus-state-stale").count(), 1,
+    "queueing alone must not dismiss stale status");
+  await page.locator("#clearStaleButton").click();
+  await page.waitForFunction(() => document.querySelector("#clearStaleStatus")
+    .textContent.includes("1 already pending"));
+  assert.equal(clearClicks, 2, "repeated clicks must receive distinct pending feedback");
+
+  rows[1].providerAgeMs = 200;
+  rows[1].providerDataStale = false; // GitHub reconfirms still-queued
+  await show(page, "focus");
+  const stillQueued = page.locator(".focus-grid-row")
+    .filter({ hasText: "Queued parent has executing child" }).locator('[data-field="state"]');
+  assert.equal(await stillQueued.locator(".focus-state-stale").count(), 0);
+  assert.match(await stillQueued.innerText(), /QUEUED/);
+  assert.equal(await page.locator("#clearStaleButton").isDisabled(), true);
+
+  rows[1].state = "completed"; // GitHub later confirms terminal
+  rows[1].providerState = "completed";
+  rows[1].conclusion = "success";
+  rows[1].executionState = "completed";
+  rows[1].jobActivity = { fresh: true, complete: true, running: 0, queued: 0, completed: 3 };
+  await show(page, "focus");
+  const finished = page.locator(".focus-grid-row")
+    .filter({ hasText: "Queued parent has executing child" }).locator('[data-field="state"]');
+  assert.match(await finished.innerText(), /SUCCESS/);
+  assert.equal(await finished.locator(".focus-state-stale").count(), 0);
+
+  await page.setViewportSize({ width: 640, height: 900 });
+  await show(page, "focus");
+  const a = await page.locator("#refreshButton").boundingBox();
+  const b = await page.locator("#clearStaleButton").boundingBox();
+  assert.ok(a && b && a.x >= 0 && b.x >= 0 &&
+    a.x + a.width <= 640 && b.x + b.width <= 640,
+    "narrow Firefox viewport must retain both toolbar buttons");
+  assert.ok(a.x + a.width <= b.x || b.x + b.width <= a.x ||
+    a.y + a.height <= b.y || b.y + b.height <= a.y,
+    "toolbar buttons must not overlap at 640px");
+  await page.setViewportSize({ width: 1250, height: 820 });
+  Object.assign(rows[1], originalQueued);
+  await show(page, "focus");
+  console.log("PASS Firefox Clear stale click/repeat/reconfirmed-live/terminal/640px layout");
+
   await show(page, "focus-dual");
   summary = await page.locator("#surfaceSummary").innerText();
   const dual = summary.match(/(\d+) pane appearances \((\d+) unique runs\)/);

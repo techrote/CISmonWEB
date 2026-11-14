@@ -35,6 +35,27 @@ export function dueActiveRun(trackedRuns, nextByKey, nowMs, keyForRun) {
   return best;
 }
 
+// Parent rechecks use their own due times and never change job-detail clocks.
+export function dueRunReconciliation(trackedRuns, pendingByKey, nowMs, keyForRun) {
+  let best = null;
+  let bestDue = Infinity;
+  let bestKey = "";
+  for (const tracked of trackedRuns) {
+    if (tracked.snapshot.state !== "in_progress" && tracked.snapshot.state !== "queued") continue;
+    const key = keyForRun(tracked.snapshot);
+    const pending = pendingByKey.get(key);
+    if (!pending) continue;
+    const due = Number(pending.nextPollMs || 0);
+    if (due > nowMs) continue;
+    if (!best || due < bestDue || (due === bestDue && key < bestKey)) {
+      best = tracked;
+      bestDue = due;
+      bestKey = key;
+    }
+  }
+  return best;
+}
+
 export function shouldServiceActive(active, repo, activeDetailStreak, burstLimit = 3) {
   if (!active) return false;
   if (!repo) return true;
