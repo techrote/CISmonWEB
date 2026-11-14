@@ -835,6 +835,10 @@ export class Monitor {
     if (attemptNumber(run) !== attemptNumber(previous)) {
       this.liveJobScans.delete(key);
       this.activeDetailErrors.delete(key);
+      // Job-detail failures and their retry deadline belong to the previous
+      // attempt. The newly confirmed attempt must be eligible for its first
+      // job inspection in the next ordinary scheduler slot.
+      this.activeDetailNextMs.set(key, 0);
     }
     run.providerConfirmedAtMs = receivedMs;
     const refreshed = this.tracker.upsert(run, receivedMs);

@@ -682,3 +682,52 @@ test("50 parent rechecks interleave with unrelated due job reads", async () => {
   assert.equal(m.runReconciliations.size, 50,
     "running parents remain monitored after a successful direct confirmation");
 });
+
+
+test("direct reconciliation clears a previous attempt's job cooldown only for the new attempt", async () => {
+  const paths = [];
+  const m = monitor(async path => {
+    paths.push(path);
+    if (path.endsWith("/actions/runs/1")) {
+      return response(rawRun(1, "queued", 2));
+    }
+    if (path.includes("/jobs?")) return response({ total_count: 0, jobs: [] });
+    throw new Error("unexpected GitHub request: " + path);
+  });
+  const repo = "owner/project";
+  const key = repo + "#1";
+  const old = Date.now() - 180_000;
+  const tracked = m.tracker.upsert({
+    ...parseRun(rawRun(1, "in_progress", 1), repo),
+    jobs: [{ id: 900, state: "in_progress" }],
+    jobsFetchedAtMs: Date.now(),
+    jobsCoverageComplete: true
+  }, old);
+  tracked.providerConfirmedAtMs = old;
+  const oldAttemptCooldown = Date.now() + 600_000;
+  m.activeDetailNextMs.set(key, oldAttemptCooldown);
+  m.activeDetailErrors.set(key, 6);
+  m.liveJobScans.set(key, { page: 2 });
+  assert.equal(m.requestStaleReconciliation().queued, 1);
+  assert.equal(m.activeDetailNextMs.get(key), oldAttemptCooldown,
+    "requesting a parent recheck must not itself change job retry timing");
+
+  await m.tick();
+  assert.deepEqual(paths, ["/repos/owner/project/actions/runs/1"]);
+  const current = m.tracker.find(repo, 1).snapshot;
+  assert.equal(current.runAttempt, 2);
+  assert.equal(current.state, "queued");
+  assert.deepEqual(current.jobs, []);
+  assert.equal(current.jobsFetchedAtMs, 0);
+  assert.equal(m.activeDetailErrors.has(key), false);
+  assert.equal(m.liveJobScans.has(key), false);
+  assert.equal(m.activeDetailNextMs.get(key), 0,
+    "a new attempt cannot inherit the previous attempt's 10-minute cooldown");
+
+  m.nextRequestAllowedMs = 0; // advance to the next ordinary API scheduler slot
+  await m.tick();
+  assert.equal(paths.length, 2);
+  assert.equal(paths[1],
+    "/repos/owner/project/actions/runs/1/attempts/2/jobs?per_page=100&page=1",
+    "first job inspection must target the new attempt, starting at page 1");
+});
