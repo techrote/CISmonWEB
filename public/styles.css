@@ -467,7 +467,9 @@ body.surface-hide-chrome main { padding-top: 10px; }
 
 @media (max-width: 700px) {
   .topbar { padding: 10px; gap: 10px; position: static; }
-  .toolbar { justify-self: end; }
+  .topbar { grid-template-columns: minmax(0, 1fr); }
+  .toolbar { grid-column: 1; justify-self: stretch; justify-content: flex-start; min-width: 0; }
+  .telemetry { grid-row: auto; grid-column: 1; }
   .button { padding: 8px 9px; }
   .telemetry { overflow-x: auto; }
   .surfacebar { position: static; flex-direction: column; }
