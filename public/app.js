@@ -65,6 +65,7 @@ let latestState = null;
 let selectedRun = null;
 let detailRequestId = 0;
 let polling = false;
+let staleClearRequesting = false;
 let pollTimer = null;
 let editingSurfaces = [];
 let editingSurfaceId = null;
@@ -672,6 +673,11 @@ async function pollState() {
   try {
     const state = await api("/api/state");
     renderSyncHealth(state);
+    const staleParents = (state.rows || []).filter(row => row.providerDataStale).length;
+    $("#clearStaleButton").disabled = staleClearRequesting || !state.providerReady || !staleParents;
+    $("#clearStaleButton").title = staleParents
+      ? "Recheck " + staleParents + " stale live parent(s) against GitHub, up to 50 per click. No workflow changes."
+      : "No stale live parents currently observed.";
     elements.repoCount.textContent = String(state.repositoryCount);
     elements.repoCount.title = state.repositorySelectionMode === "activity"
       ? state.repositoryCount + " watched / " + state.candidateRepositoryCount +
@@ -1472,6 +1478,31 @@ $("#refreshButton").addEventListener("click", async () => {
   } finally {
     button.disabled = false;
     button.textContent = "Rescan";
+  }
+});
+
+$("#clearStaleButton").addEventListener("click", async () => {
+  const button = $("#clearStaleButton");
+  const feedback = $("#clearStaleStatus");
+  staleClearRequesting = true;
+  button.disabled = true;
+  feedback.textContent = "Queueing status rechecks…";
+  try {
+    const result = await api("/api/clear-stale", { method: "POST", body: "{}" });
+    const parts = [];
+    parts.push(result.queued
+      ? result.queued + " new recheck(s) queued"
+      : "No new rechecks queued");
+    if (result.alreadyPending) parts.push(result.alreadyPending + " already pending");
+    if (result.deferred) parts.push(result.deferred + " deferred (50 per click)");
+    if (result.rateLimited) parts.push("GitHub API paused; requests await reset");
+    feedback.textContent = parts.join(" · ") + ". Results update after GitHub confirms them.";
+  } catch (error) {
+    feedback.textContent = "Unable to queue stale rechecks: " + error.message;
+  } finally {
+    staleClearRequesting = false;
+    button.disabled = !latestState?.providerReady ||
+      !(latestState?.rows || []).some(row => row.providerDataStale);
   }
 });
 

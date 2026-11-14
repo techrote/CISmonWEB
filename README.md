@@ -204,6 +204,26 @@ The top telemetry exposes **SCANNED** and **TRACKED** counts. While a sweep is i
 
 This is distinct from the browser surface refresh cadence: a 1-second surface does not cause GitHub to be polled every second.
 
+## Clear stale: authoritative on-demand parent rechecks
+
+The **Clear stale** button (next to **Rescan**) selects tracked live
+`queued`/`in_progress` workflows whose last successful GitHub parent
+confirmation is older than two minutes. It queues **up to 50** direct parent
+rechecks per click. Already-pending checks are not duplicated, and API-error
+backoff is retained. Clicking again may enqueue additional deferred parents.
+
+**Clear stale does not clear or dismiss evidence.** The button reports work
+queued in CISmonWEB's ordinary, rate-limited, fair scheduler; it does not
+issue a network request directly, cancel GitHub jobs, retry failed workflows,
+or assume that finished child jobs mean a completed parent. The parent
+`PARENT STALE` warning persists until GitHub successfully confirms the
+parent's status. If GitHub reports that it is still running, the confirmation
+age is refreshed and the warning can disappear without changing its
+`IN PROGRESS` state; a confirmed terminal status retires live tracking.
+GitHub errors, absent credentials and rate limits remain visible/blocked
+rather than silently hiding stale records. Regular Rescan remains a
+repository-wide discovery/summary refresh, not this targeted operation.
+
 ## Synchronisation reliability and diagnostics
 
 The browser refreshes its local dashboard independently of GitHub API calls.

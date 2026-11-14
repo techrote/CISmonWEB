@@ -327,3 +327,22 @@ test("Configure distinguishes environment-only and separately stored credentials
     assert.match(label, /does not change the environment token/);
   }
 });
+
+
+test("Clear stale toolbar reports queueing honestly, including pending and deferred work", async () => {
+  const ui = app(async (url, options) => {
+    assert.equal(url, "/api/clear-stale");
+    assert.equal(options.method, "POST");
+    assert.equal(options.body, "{}");
+    return { queued: 2, alreadyPending: 1, deferred: 3, rateLimited: true };
+  });
+  ui.run("latestState = { providerReady: true, rows: [{ providerDataStale: true }] };");
+  await ui.element("#clearStaleButton").dispatch("click");
+  const feedback = ui.element("#clearStaleStatus").textContent;
+  assert.match(feedback, /2 new recheck\(s\) queued/);
+  assert.match(feedback, /1 already pending/);
+  assert.match(feedback, /3 deferred/);
+  assert.match(feedback, /API paused/);
+  assert.match(feedback, /after GitHub confirms/);
+  assert.equal(ui.element("#clearStaleButton").disabled, false);
+});
