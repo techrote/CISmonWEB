@@ -200,6 +200,36 @@ try {
   assert.equal(focus.gridOverflowMode, "wrap");
   assert.equal(focus.focusCondenseHistory, false);
 
+  // Verify actual viewport geometry and unchanged DOM row order in Firefox.
+  const topGrid = await page.locator("#dashboard > .focus-grid-wrap").boundingBox();
+  const topDashboard = await page.locator("#dashboard").boundingBox();
+  assert.ok(Math.abs(topGrid.y - topDashboard.y) < 2, "default grid is top-aligned");
+  const originalOrder = await page.locator(".focus-grid-row").evaluateAll(nodes =>
+    nodes.map(item => item.title));
+  await page.locator("#surfaceSettingsButton").click();
+  await page.locator("#surfaceDialog").waitFor({ state: "visible" });
+  await page.locator("#surfaceGridBottomAlign").check();
+  await editorSave(page);
+  cfg = await api("/api/config");
+  focus = cfg.surfaces.find(s => s.id === "focus");
+  assert.equal(focus.gridBottomAlign, true, "bottom alignment must persist in config");
+  assert.equal(await page.locator("body").evaluate(el =>
+    el.classList.contains("grid-bottom-aligned")), true);
+  const bottomGrid = await page.locator("#dashboard > .focus-grid-wrap").boundingBox();
+  const bottomDashboard = await page.locator("#dashboard").boundingBox();
+  assert.ok(bottomGrid.y > topGrid.y + 40, "empty viewport area must be above the grid");
+  assert.ok(Math.abs(bottomGrid.y + bottomGrid.height -
+    bottomDashboard.y - bottomDashboard.height) < 2, "grid ends at dashboard bottom");
+  assert.deepEqual(await page.locator(".focus-grid-row").evaluateAll(nodes =>
+    nodes.map(item => item.title)), originalOrder, "bottom alignment must not reverse rows");
+  await show(page, "dense");
+  assert.equal(await page.locator("body").evaluate(el =>
+    el.classList.contains("grid-bottom-aligned")), false, "Dense keeps independent alignment");
+  await show(page, "focus");
+  assert.equal(await page.locator("body").evaluate(el =>
+    el.classList.contains("grid-bottom-aligned")), true, "Focus setting survives reload");
+  console.log("PASS Firefox bottom alignment, row ordering and surface isolation");
+
   // Keyboard resizing must update the persisted column width, even as the
   // grid is rebuilt by frequent incoming state refreshes.
   const resize = page.locator('th[data-field="elapsed"] .focus-resize-handle');
@@ -251,12 +281,14 @@ try {
   const stored = saved.surfaces.find(s => s.id === "focus");
   assert.equal(stored.focusCondenseHistory, false);
   assert.equal(stored.gridOverflowMode, "wrap");
+  assert.equal(stored.gridBottomAlign, true);
   assert.equal(stored.gridWidths.elapsed, 45);
   server = await startServer();
   cfg = await api("/api/config");
   focus = cfg.surfaces.find(s => s.id === "focus");
   assert.equal(focus.focusCondenseHistory, false);
   assert.equal(focus.gridOverflowMode, "wrap");
+  assert.equal(focus.gridBottomAlign, true);
   assert.equal(focus.gridWidths.elapsed, 45);
   assert.ok(!JSON.stringify(cfg).includes("github_pat_"), "public config must not expose credentials");
   console.log("PASS native Windows disk config readback and server restart");

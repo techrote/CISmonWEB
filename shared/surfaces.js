@@ -74,6 +74,7 @@ export const DEFAULT_SURFACES = Object.freeze([
     gridFields: DEFAULT_FOCUS_COLUMNS,
     gridWidths: {},
     gridWrap: false,
+    gridBottomAlign: false,
     gridSortBy: "priority",
     gridSortDir: "desc"
   },
@@ -419,6 +420,7 @@ export function normalizeSurface(input = {}, index = 0) {
       input.gridRowHeight ?? fallback.gridRowHeight ?? 0),
     gridHeaderOverflowMode: normalizeGridOverflowMode(input.gridHeaderOverflowMode, false),
     gridWrap: bool(input.gridWrap, fallback.gridWrap ?? false),
+    gridBottomAlign: bool(input.gridBottomAlign, fallback.gridBottomAlign ?? false),
     gridOverflowMode: normalizeGridOverflowMode(input.gridOverflowMode,
       bool(input.gridWrap, fallback.gridWrap ?? false)),
     gridBreakAfterSeparators: bool(

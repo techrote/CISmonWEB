@@ -570,6 +570,8 @@ function applySurfaceVisuals() {
   document.body.classList.toggle("surface-hide-topbar", surface.hideChrome && !surface.showTelemetry);
   elements.main.classList.toggle("full-width", surface.fullWidth || minimalOnly);
   document.body.classList.toggle("minimal-only", minimalOnly);
+  document.body.classList.toggle("grid-bottom-aligned",
+    surface.gridBottomAlign === true && ["rows", "table"].includes(surface.layout));
   $("#exitBorderlessButton").hidden = !minimalOnly;
   elements.minimalFooter.hidden = !minimalOnly;
   elements.telemetry.hidden = !surface.showTelemetry;
@@ -1176,6 +1178,7 @@ function writeSurfaceForm(surface) {
   syncDurationControls("surface");
   $("#surfaceGridOverflow").value = surface.gridOverflowMode || (surface.gridWrap ? "wrap" : "ellipsis");
   $("#surfaceGridBreakAfterSeparators").checked = surface.gridBreakAfterSeparators !== false;
+  $("#surfaceGridBottomAlign").checked = surface.gridBottomAlign === true;
   $("#surfaceGridSort").value = surface.gridSortBy;
   $("#surfaceGridRowHeight").value = surface.gridRowLines ?? 0;
   $("#surfaceHeaderOverflow").value = surface.gridHeaderOverflowMode || "ellipsis";
@@ -1233,6 +1236,7 @@ function readSurfaceForm(existing) {
     gridWrap: $("#surfaceGridOverflow").value === "wrap",
     gridOverflowMode: $("#surfaceGridOverflow").value,
     gridBreakAfterSeparators: $("#surfaceGridBreakAfterSeparators").checked,
+    gridBottomAlign: $("#surfaceGridBottomAlign").checked,
     gridSortBy: $("#surfaceGridSort").value,
     gridRowLines: Number($("#surfaceGridRowHeight").value),
     gridHeaderOverflowMode: $("#surfaceHeaderOverflow").value,

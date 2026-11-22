@@ -14,6 +14,18 @@ Direct URL: http://127.0.0.1:8787/?surface=focus&minimal=1
 
 Popup selection is local to that window: opening it does not change the active profile in the main browser window.
 
+## Bottom-aligned Focus rows
+
+In **Surface → Focus grid**, enable **Bottom-align grid rows** to anchor
+the single Focus grid against the bottom of the available viewport. If only
+a few workflows are visible, unused space is **above** the grid rather than
+below. This also applies in Surface only and Surface fullscreen.
+
+This preference defaults off and is presentation-only: it does not reverse
+row order, alter attention or column sorting, or change the sticky header or
+scroll order. It is persisted independently per surface profile and applies
+only to single-grid Rows/Table layouts, not Focus Dual or Focus Vert panes.
+
 ## Execution-only timing and advanced grid controls
 
 Queue waiting and run execution are now separate. Queued workflows show WAIT

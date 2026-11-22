@@ -882,6 +882,30 @@ body.surface-hide-chrome main { padding-top: 10px; }
 .dashboard.layout-rows,
 .dashboard.layout-table,
 .dashboard.layout-focus_dual { display: block; }
+/* Opt-in single-grid bottom alignment. Preserve DOM row order, sticky header
+   and native scrolling, including in minimal/fullscreen surface views. */
+body.grid-bottom-aligned {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+body.grid-bottom-aligned > main {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+}
+body.grid-bottom-aligned > main > .dashboard.layout-rows,
+body.grid-bottom-aligned > main > .dashboard.layout-table {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+body.grid-bottom-aligned .dashboard > .focus-grid-wrap {
+  flex: 0 1 auto;
+  min-height: 0;
+}
 .focus-grid-wrap {
   max-width: 100%;
   width: 100%;
