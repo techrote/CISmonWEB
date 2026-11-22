@@ -23,6 +23,19 @@ test("default surfaces include distinct desk, dense, alert and wallboard profile
   assert.equal(DEFAULT_SURFACES.find(s => s.id === "hungry-margins").layout, "hungry_margins");
 });
 
+test("Focus bottom alignment is opt-in, persisted and leaves row ordering intact", () => {
+  const baseline = normalizeSurfaces([{ id: "focus", layout: "rows" }, { id: "dense", layout: "table" }]);
+  assert.equal(baseline[0].gridBottomAlign, false);
+  assert.equal(baseline[1].gridBottomAlign, false);
+  const saved = normalizeSurfaces([{ ...baseline[0], gridBottomAlign: true }, baseline[1]]);
+  assert.equal(saved[0].gridBottomAlign, true);
+  assert.equal(saved[1].gridBottomAlign, false);
+  assert.equal(normalizeSurface({ gridBottomAlign: "true" }).gridBottomAlign, false);
+  const before = applySurface(rows, { ...baseline[0], sort: "repository", maxItems: 10 });
+  const after = applySurface(rows, { ...saved[0], sort: "repository", maxItems: 10 });
+  assert.deepEqual(after, before);
+});
+
 test("surface normalization clamps unsafe values and de-duplicates ids", () => {
   const normalized = normalizeSurface({
     id: "My Surface !",
