@@ -1,0 +1,50 @@
+name: TempToPC Windows project acceptance
+# Install this workflow in the actual PROJECT BEING TESTED, on its default branch.
+# Generated from TempToPC via scripts/generate-caller.sh to pin its implementation.
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "Human acceptance window (manual launch)"
+        type: choice
+        required: true
+        default: "60"
+        options: ["30", "60", "120", "240", "300"]
+      candidate_run_id:
+        description: "Optional successful build Actions run ID in this same repository"
+        type: string
+        required: false
+        default: ""
+      candidate_artifact:
+        description: "Optional exact artifact name from that run"
+        type: string
+        required: false
+        default: ""
+      candidate_sha:
+        description: "Optional matching full 40-hex source commit SHA from that run"
+        type: string
+        required: false
+        default: ""
+      candidate_prs:
+        description: "Comma-separated PR-number@head-SHA source snapshots (max 16; never executed)"
+        type: string
+        required: false
+        default: "23@67f764a74c393af8c729a115e2085abc5bc3a490,25@4baa6f8a737d300ade3dc4e831c99f2809e7b92b,26@a22b733841940b0abcbe095a1c89d08273dccbd7"
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+jobs:
+  interactive-acceptance:
+    uses: techrote/temptopc/.github/workflows/windows-desktop.yml@309640fa5e6258a941426ae8c6316a7de5faa878
+    with:
+      minutes: ${{ fromJSON(inputs.minutes) }}
+      candidate_run_id: ${{ inputs.candidate_run_id }}
+      candidate_artifact: ${{ inputs.candidate_artifact }}
+      candidate_sha: ${{ inputs.candidate_sha }}
+      candidate_prs: ${{ inputs.candidate_prs }}
+    secrets:
+      TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+      TEMPTOPC_RDP_PASSWORD: ${{ secrets.TEMPTOPC_RDP_PASSWORD }}
