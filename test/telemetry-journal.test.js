@@ -38,3 +38,24 @@ test("restart separates torn tail; bounded overflow and 30-day cleanup",async()=
     assert.equal((await readdir(dir)).length,1);
   }finally{await rm(dir,{recursive:true,force:true});}
 });
+
+test("repeat confirmations retain run evidence without replaying an unchanged matrix",async()=>{
+  const dir=await mkdtemp(path.join(tmpdir(),"telemetry-"));
+  try {
+    const j=new TelemetryJournal(dir,{clock:()=>at});
+    j.capture(tracked,analyzer,at);j.capture(tracked,analyzer,at+1000);
+    j.capture(tracked,analyzer,at+61000);await j.stop();
+    const raw=await readFile(path.join(dir,"telemetry-"+Math.floor(at/3600000)+".jsonl"),"utf8");
+    const rows=raw.trim().split("\n").map(JSON.parse);
+    assert.equal(rows.filter(x=>x.kind==="run").length,3);
+    assert.equal(rows.filter(x=>x.kind==="job").length,2);
+    assert.equal(rows.filter(x=>x.kind==="run"&&x.data.childrenUnchanged).length,1);
+  }finally{await rm(dir,{recursive:true,force:true});}
+});
+test("terminal job-span rejects missing paired timestamps",()=>{
+  const t={snapshot:{...tracked.snapshot,state:"completed",jobsCoverageComplete:true,jobs:[{id:1,state:"completed",conclusion:"success",startedAtEpoch:1795816700,completedAtEpoch:1795816750},{id:2,state:"completed",conclusion:"skipped"}]}};
+  assert.equal(projectRun(t,analyzer,at)[0].data.jobSpanMs,50000);
+  t.snapshot.jobs[0].completedAtEpoch=0;
+  assert.equal(projectRun(t,analyzer,at)[0].data.terminalJobsComplete,false);
+  assert.equal(projectRun(t,analyzer,at)[0].data.jobSpanMs,undefined);
+});

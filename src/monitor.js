@@ -121,7 +121,7 @@ export class Monitor {
 
   stop() {
     if (this.timer) clearInterval(this.timer);
-    this.telemetry?.stop();
+    return this.telemetry?.stop();
   }
 
   track(snapshot, nowMs) {
@@ -714,7 +714,7 @@ export class Monitor {
             previousConfirmationMs || 0, tracked.firstSeenMs || 0)
         });
         this.activeDetailNextMs.set(key, 0);
-        this.telemetry?.health(this, receivedMs, "reconciliation-pending");
+        this.telemetry?.reconcile(run, receivedMs, "reconciliation-pending");
       }
       if (run.state === RunState.InProgress || observedRunningJobs(run, receivedMs).length) hasActive = true;
       if (run.state === RunState.Queued) hasQueued = true;
@@ -804,7 +804,7 @@ export class Monitor {
     run.providerConfirmedAtMs = receivedMs;
     const trackedResult = this.tracker.upsert(run, receivedMs);
     this.telemetry?.capture(trackedResult, this.analyzer, receivedMs);
-    this.telemetry?.health(this, receivedMs, "reconciliation-confirmed");
+    this.telemetry?.reconcile(run, receivedMs, "reconciliation-confirmed");
     if (run.event === "pull_request") this.enqueueCheckTarget(run);
     if (run.state === RunState.Completed) {
       this.runReconciliations.delete(key);

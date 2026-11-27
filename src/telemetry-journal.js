@@ -35,15 +35,18 @@ function common(s) {
     startedAt:epoch(s.startedAtEpoch),completedAt:epoch(s.completedAtEpoch)};
 }
 // Projection contains no raw provider strings, configuration, logs, URLs, paths or errors.
-export function projectRun(tracked, analyzer, at, maxRecords = 2000) {
+export function projectRun(tracked, analyzer, at, maxRecords = 2000, includeChildren = true) {
   const s = tracked.snapshot;
   if (s.repository !== REPO || !id(s.runId) || !id(s.runAttempt)) return [];
   const identity = data({runId:id(s.runId),attempt:s.runAttempt,workflowId:id(s.workflowId),headSha:sha(s.headSha)});
   const activity = jobActivitySummary(s,at);
-  const confirm = time(tracked.providerConfirmedAtMs || s.providerConfirmedAtMs);
+  const confirm = time(Math.max(tracked.providerConfirmedAtMs || 0,s.providerConfirmedAtMs || 0));
   const fresh = confirm !== undefined && confirm <= at + 5000 && at-confirm <= 120000;
   const effective = observedRunState(s,at);
   const jobs = Array.isArray(s.jobs) ? s.jobs : [];
+  const executed=jobs.filter(j=>j.conclusion!=="skipped");
+  const terminalJobsComplete=s.state==="completed"&&s.jobsCoverageComplete===true&&jobs.every(j=>j.state==="completed")&&executed.length>0&&executed.every(j=>epoch(j.startedAtEpoch)!==undefined&&epoch(j.completedAtEpoch)!==undefined&&j.completedAtEpoch>=j.startedAtEpoch);
+  const jobSpanMs=terminalJobsComplete?(Math.max(...executed.map(j=>j.completedAtEpoch))-Math.min(...executed.map(j=>j.startedAtEpoch)))*1000:undefined;
   const coverage = {providerConfirmedAt:confirm,providerFresh:fresh,
     jobsFetchedAt:time(s.jobsFetchedAtMs),jobsFresh:activity.fresh,
     jobsCoverageComplete:bool(s.jobsCoverageComplete),jobsExpectedCount:num(s.jobsExpectedCount)};
@@ -55,24 +58,31 @@ export function projectRun(tracked, analyzer, at, maxRecords = 2000) {
     runningJobs:activity.fresh?activity.running:undefined,queuedJobs:activity.fresh?activity.queued:undefined,
     assignedRunningJobs:activity.fresh?activity.assignedRunning:undefined,
     unassignedRunningJobs:activity.fresh?activity.unassignedRunning:undefined,
-    observedJobs:jobs.length,
+    observedJobs:jobs.length,terminalJobsComplete,jobSpanMs,childrenUnchanged:!includeChildren,
     ...analysis(analyzer.analyzeRun({...s,state:effective},Math.floor(at/1000)))})];
-  let omitted=0;
+  if(!includeChildren)return records;
+  let omitted=0,stageAttention="normal",stagePossiblyStalled=false;
+  const rank={normal:0,interesting:1,suspicious:2,action_required:3};
+  const stage=a=>{if(rank[a.attention]>rank[stageAttention])stageAttention=a.attention;stagePossiblyStalled||=!!a.possiblyStalled;};
   for (const j of jobs) {
     if (!id(j.id)) {omitted++;continue;}
     if (records.length >= maxRecords) {omitted++;break;}
     const ji = {...identity,jobId:id(j.id)};
+    const ja=analyzer.analyzeJob(s,j,Math.floor(at/1000));
+    if(activity.fresh&&j.state==="in_progress")stage(ja);
     records.push(envelope("job",at,ji,{...common(j),...coverage,nameHash:hash(j.name),
-      runnerId:id(j.runnerId),runnerHash:hash(j.runnerName),
-      ...analysis(analyzer.analyzeJob(s,j,Math.floor(at/1000)))}));
+      runnerId:id(j.runnerId),runnerHash:hash(j.runnerName),...analysis(ja)}));
     for(const step of j.steps || []) {
       if(!id(step.number)){omitted++;continue;}
       if(records.length>=maxRecords){omitted++;break;}
+      const sa=analyzer.analyzeStep(s,j,step,Math.floor(at/1000));
+      if(activity.fresh&&j.state==="in_progress"&&step.state==="in_progress")stage(sa);
       records.push(envelope("step",at,{...ji,stepNumber:step.number},{...common(step),...coverage,
-        nameHash:hash(step.name),...analysis(analyzer.analyzeStep(s,j,step,Math.floor(at/1000)))}));
+        nameHash:hash(step.name),...analysis(sa)}));
     }
   }
   if(omitted) records[0].data.exportPartial=true;
+  if(activity.fresh){records[0].data.stageAttention=stageAttention;records[0].data.stagePossiblyStalled=stagePossiblyStalled;}
   return records;
 }
 
@@ -103,11 +113,21 @@ export class TelemetryJournal {
     this.dir=dir;this.maxBytes=maxBytes;this.hourBytes=hourBytes;this.clock=clock;
     this.queue=[];this.bytes=0;this.dropped=0;this.writing=null;this.timer=null;
     this.retryAt=0;this.lastPrune=-1;this.lastHealth=0;this.closed=false;
+    this.seenJobs=new WeakMap();
     this.offer([envelope("monitor",this.clock(),{},{reason:"session-start"})]);
   }
   capture(tracked,analyzer,at=this.clock()){
-    try {this.offer(projectRun(tracked,analyzer,at));}
-    catch {this.dropped++;}
+    try {
+      const s=tracked.snapshot;if(s.repository!==REPO)return;
+      // Do not spend unbounded projection work while the writer is saturated.
+      if(this.bytes>this.maxBytes*0.9||this.retryAt>at){this.dropped++;this.schedule();return;}
+      const jobs=s.jobs,previous=Array.isArray(jobs)?this.seenJobs.get(jobs):undefined;
+      // Repeat child samples at least once per minute when detail remains
+      // unchanged; summary-only confirmations still produce run snapshots.
+      const includeChildren=previous===undefined||at-previous>=60000;
+      const rows=projectRun(tracked,analyzer,at,2000,includeChildren);
+      if(this.offer(rows)&&includeChildren&&Array.isArray(jobs)&&!rows[0]?.data.exportPartial)this.seenJobs.set(jobs,at);
+    }catch {this.dropped++;this.schedule();}
   }
   health(monitor,at=this.clock(),reason="heartbeat"){
     if(reason==="heartbeat"&&at-this.lastHealth<30000)return;
@@ -119,14 +139,19 @@ export class TelemetryJournal {
     const reason=scope.split(":")[0];
     this.offer([envelope("monitor",at,{},{reason:reason==="scheduler"?"scheduler-error":"provider-error",httpStatus:num(status)})]);
   }
+  reconcile(snapshot,at,reason){
+    if(snapshot.repository!==REPO)return;
+    this.offer([envelope("monitor",at,data({runId:id(snapshot.runId),attempt:id(snapshot.runAttempt)?snapshot.runAttempt:undefined,workflowId:id(snapshot.workflowId),headSha:sha(snapshot.headSha)}),{reason,providerConfirmedAt:time(snapshot.providerConfirmedAtMs)})]);
+  }
   offer(records){
-    if(this.closed)return;
+    if(this.closed)return false;
+    let complete=true;
     for(const r of records){
       const line=JSON.stringify(r)+"\n", size=Buffer.byteLength(line);
-      if(this.bytes+size>this.maxBytes){this.dropped++;continue;}
+      if(this.bytes+size>this.maxBytes){this.dropped++;complete=false;continue;}
       this.queue.push(line);this.bytes+=size;
     }
-    this.schedule();
+    this.schedule();return complete;
   }
   schedule(){
     if(this.timer||this.writing||this.closed||(!this.queue.length&&!this.dropped))return;
@@ -166,8 +191,9 @@ export class TelemetryJournal {
     })();
     try{await this.writing;}finally{this.writing=null;this.schedule();}
   }
-  stop(){
+  async stop(){
     this.closed=true;if(this.timer)clearTimeout(this.timer);this.timer=null;
-    return this.flush();
+    if(this.writing)await this.writing;
+    await this.flush();
   }
 }

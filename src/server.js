@@ -257,8 +257,11 @@ server.listen(PORT, HOST, () => {
 });
 
 function shutdown() {
-  monitor.stop();
-  server.close(() => process.exit(0));
+  const flush = monitor.stop();
+  server.close(async () => {
+    if (flush) await Promise.race([flush, new Promise(resolve => setTimeout(resolve, 1000))]);
+    process.exit(0);
+  });
 }
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
