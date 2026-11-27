@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { ConfigStore } from "./config-store.js";
 import { FileHistoryStore } from "./history-store.js";
 import { Monitor } from "./monitor.js";
+import { TelemetryJournal } from "./telemetry-journal.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.resolve(__dirname, "../public");
@@ -12,7 +13,9 @@ const sharedDir = path.resolve(__dirname, "../shared");
 const artDir = path.join(publicDir, "art");
 const configStore = new ConfigStore();
 const history = new FileHistoryStore(configStore.dataDir);
-const monitor = new Monitor(configStore, history);
+// Separate opt-in local directory; no config/history migration or HTTP surface.
+const telemetry = process.env.CISMON_TELEMETRY_DIR ? new TelemetryJournal(path.resolve(process.env.CISMON_TELEMETRY_DIR)) : null;
+const monitor = new Monitor(configStore, history, { telemetry });
 
 const HOST = process.env.CISMON_HOST || "127.0.0.1";
 const PORT = Number(process.env.CISMON_PORT || 8787);

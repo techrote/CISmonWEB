@@ -57,7 +57,8 @@ function isLive(run) {
 }
 
 export class Monitor {
-  constructor(configStore, history) {
+  constructor(configStore, history, { telemetry = null } = {}) {
+    this.telemetry = telemetry;
     this.configStore = configStore;
     this.history = history;
     this.config = null;
@@ -120,6 +121,13 @@ export class Monitor {
 
   stop() {
     if (this.timer) clearInterval(this.timer);
+    this.telemetry?.stop();
+  }
+
+  track(snapshot, nowMs) {
+    const tracked = this.tracker.upsert(snapshot, nowMs);
+    this.telemetry?.capture(tracked, this.analyzer, Date.now());
+    return tracked;
   }
 
   repositoryAllowed(fullName) {
@@ -137,6 +145,7 @@ export class Monitor {
     this.lastErrorAtMs = nowMs;
     this.lastErrorScope = scope;
     this.recentRequestErrors += 1;
+    this.telemetry?.failure(scope, status, nowMs);
   }
 
   clearFailure(scope) {
@@ -602,7 +611,10 @@ export class Monitor {
       // not confirm status for older runs absent from that page.
       for (const runId of repo.lastSummaryRunIds || []) {
         const tracked = this.tracker.find(repo.fullName, runId);
-        if (tracked) tracked.providerConfirmedAtMs = receivedMs;
+        if (tracked) {
+          tracked.providerConfirmedAtMs = receivedMs;
+          this.telemetry?.capture(tracked, this.analyzer, receivedMs);
+        }
       }
       repo.errors = 0;
       repo.successfulPollCount += 1;
@@ -662,6 +674,7 @@ export class Monitor {
       if (shouldTrackSummaryRun(run, Boolean(existing), nowMs, TERMINAL_IMPORT_LOOKBACK_MS)) {
         const tracked = this.tracker.upsert(run, nowMs);
         tracked.providerConfirmedAtMs = receivedMs;
+        this.telemetry?.capture(tracked, this.analyzer, receivedMs);
       }
 
       if (run.state === RunState.InProgress || run.state === RunState.Queued) {
@@ -701,6 +714,7 @@ export class Monitor {
             previousConfirmationMs || 0, tracked.firstSeenMs || 0)
         });
         this.activeDetailNextMs.set(key, 0);
+        this.telemetry?.health(this, receivedMs, "reconciliation-pending");
       }
       if (run.state === RunState.InProgress || observedRunningJobs(run, receivedMs).length) hasActive = true;
       if (run.state === RunState.Queued) hasQueued = true;
@@ -788,7 +802,9 @@ export class Monitor {
       this.activeDetailErrors.delete(key);
     }
     run.providerConfirmedAtMs = receivedMs;
-    this.tracker.upsert(run, receivedMs);
+    const trackedResult = this.tracker.upsert(run, receivedMs);
+    this.telemetry?.capture(trackedResult, this.analyzer, receivedMs);
+    this.telemetry?.health(this, receivedMs, "reconciliation-confirmed");
     if (run.event === "pull_request") this.enqueueCheckTarget(run);
     if (run.state === RunState.Completed) {
       this.runReconciliations.delete(key);
@@ -900,7 +916,9 @@ export class Monitor {
     const regressesTerminal = existing?.snapshot.state === RunState.Completed && isLive(detailed);
     if (compatibleAttempt && !regressesTerminal && (!recordWhenComplete ||
         shouldTrackSummaryRun(detailed, Boolean(existing), nowMs, TERMINAL_IMPORT_LOOKBACK_MS))) {
-      this.tracker.upsert(detailed, nowMs);
+      this.track(detailed, nowMs);
+    } else if (recordWhenComplete && detailed.state === RunState.Completed) {
+      this.telemetry?.capture({ snapshot: detailed }, this.analyzer, receivedMs);
     }
     if (recordWhenComplete && detailed.state === RunState.Completed) {
       await this.history.recordRun(detailed);
@@ -954,6 +972,7 @@ export class Monitor {
     const generation = this.providerGeneration;
     const nowMs = Date.now();
     this.tracker.prune(nowMs);
+    this.telemetry?.health(this, nowMs);
     if (nowMs < this.nextRequestAllowedMs || nowMs < this.rateLimitedUntilMs) return;
 
     this.busy = true;
