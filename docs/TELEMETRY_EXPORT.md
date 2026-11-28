@@ -7,3 +7,5 @@ Repeated summaries emit run records but suppress unchanged child arrays for up t
 
 ## Convergence extension
 Heartbeat additionally carries aggregate portfolio runner/queue counts, coverage and scan freshness. No other repository names, run identities or details are exported. This is the monitored portfolio, not a claim of complete account-wide or organization-wide runner coverage. The consumer may compute occupancy only with an explicitly owner-configured, verified shared pool capacity. Existing pilot run records and default-disabled behaviour are unchanged. The convergence consumer accepts both original and extended V1 envelopes; older strict consumers must update before enabling this extension.
+
+Portfolio freshness requires every admitted repository summary and every live parent to be recently confirmed, plus complete fresh worker detail. When these conditions are not met, occupancy-derived escalation abstains.

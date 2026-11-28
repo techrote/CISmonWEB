@@ -94,6 +94,7 @@ export function projectHealth(monitor,at,reason="heartbeat") {
   const scanned=monitor.repositories.filter(r=>r.lastSuccessAtMs>0).length;
   const portfolioFresh=monitor.providerReady===true&&scanned===monitor.repositories.length&&
     monitor.repositories.length>0&&!portfolio.activeWorkersPartial&&
+    monitor.repositories.every(r=>r.lastSuccessAtMs>0&&r.lastSuccessAtMs<=at&&at-r.lastSuccessAtMs<=120000)&&
     live.every(t=>t.providerConfirmedAtMs>0&&t.providerConfirmedAtMs<=at&&at-t.providerConfirmedAtMs<=120000)&&
     !(monitor.rateLimitedUntilMs>at);
   const repo=monitor.repositories.find(x=>x.fullName===REPO);
