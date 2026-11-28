@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {mkdtemp,readFile,readdir,writeFile,rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import path from "node:path";
-import {TelemetryJournal,projectRun} from "../src/telemetry-journal.js";
+import {TelemetryJournal,projectRun,projectHealth} from "../src/telemetry-journal.js";
 import {Monitor} from "../src/monitor.js";
 const at=1795816800000;
 const analyzer={analyzeRun:()=>({attention:"normal",confidence:"low",baseline:{samples:4,median:1000}}),analyzeJob:()=>({}),analyzeStep:()=>({})};
@@ -58,4 +58,13 @@ test("terminal job-span rejects missing paired timestamps",()=>{
   t.snapshot.jobs[0].completedAtEpoch=0;
   assert.equal(projectRun(t,analyzer,at)[0].data.terminalJobsComplete,false);
   assert.equal(projectRun(t,analyzer,at)[0].data.jobSpanMs,undefined);
+});
+
+test("portfolio aggregation exports no other repository identity; partial freshness remains explicit",()=>{
+  const other={providerConfirmedAtMs:at-1000,snapshot:{repository:"private/other",state:"in_progress",jobsFetchedAtMs:at-1000,jobsCoverageComplete:true,jobs:[{id:55,runnerId:17,state:"in_progress"}]}};
+  const mon={tracker:{all:()=>[other]},repositories:[{fullName:"private/other",lastSuccessAtMs:at-1000}],providerReady:true,runReconciliations:new Map()};
+  const h=projectHealth(mon,at);
+  assert.equal(h.data.trackedRuns,0);assert.equal(h.data.portfolioActiveWorkers,1);
+  assert.equal(h.data.portfolioFresh,true);assert.doesNotMatch(JSON.stringify(h),/private\/other/);
+  assert.equal(projectHealth(mon,at+130000).data.portfolioFresh,false);
 });

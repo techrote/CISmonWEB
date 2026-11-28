@@ -87,8 +87,15 @@ export function projectRun(tracked, analyzer, at, maxRecords = 2000, includeChil
 }
 
 export function projectHealth(monitor,at,reason="heartbeat") {
-  const tracked=monitor.tracker.all().filter(t=>t.snapshot.repository===REPO);
-  const w=activeWorkerSummary(tracked,at);
+  const all=monitor.tracker.all();
+  const tracked=all.filter(t=>t.snapshot.repository===REPO);
+  const w=activeWorkerSummary(tracked,at),portfolio=activeWorkerSummary(all,at);
+  const live=all.filter(t=>["queued","in_progress"].includes(t.snapshot.state));
+  const scanned=monitor.repositories.filter(r=>r.lastSuccessAtMs>0).length;
+  const portfolioFresh=monitor.providerReady===true&&scanned===monitor.repositories.length&&
+    monitor.repositories.length>0&&!portfolio.activeWorkersPartial&&
+    live.every(t=>t.providerConfirmedAtMs>0&&t.providerConfirmedAtMs<=at&&at-t.providerConfirmedAtMs<=120000)&&
+    !(monitor.rateLimitedUntilMs>at);
   const repo=monitor.repositories.find(x=>x.fullName===REPO);
   return envelope("monitor",at,{},{
     reason,trackedRuns:tracked.length,queuedRuns:w.providerQueuedRunCount,
@@ -96,6 +103,10 @@ export function projectHealth(monitor,at,reason="heartbeat") {
     activeWorkersPartial:w.activeWorkersPartial,workerCoverageRuns:w.workerCoverageRuns,
     workerTotalLiveRuns:w.workerTotalLiveRuns,observedRunningJobs:w.observedRunningJobCount,
     unassignedRunningJobs:w.unassignedRunningJobCount,
+    portfolioTrackedRepos:monitor.repositories.length,portfolioScannedRepos:scanned,
+    portfolioActiveWorkers:portfolio.activeWorkers,portfolioQueuedRuns:portfolio.providerQueuedRunCount,
+    portfolioWorkerCoverageRuns:portfolio.workerCoverageRuns,portfolioTotalLiveRuns:portfolio.workerTotalLiveRuns,
+    portfolioActiveWorkersPartial:portfolio.activeWorkersPartial,portfolioFresh,
     providerReady:bool(monitor.providerReady),repoTracked:!!repo,
     providerConfirmedAt:time(repo?.lastSuccessAtMs),rateRemaining:num(monitor.rateRemaining),
     rateLimitedUntil:time(monitor.rateLimitedUntilMs),
